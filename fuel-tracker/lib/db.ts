@@ -1,19 +1,18 @@
+/**
+ * db.ts — low-level database layer.
+ *
+ * Responsibilities:
+ *  - Open and cache the SQLite connection (singleton).
+ *  - Run schema migrations / table initialisation on app startup.
+ *
+ * All higher-level CRUD operations live in fuelRepository.ts.
+ * All shared types live in types.ts.
+ */
+
 import * as SQLite from 'expo-sqlite';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface FuelEntry {
-  id: number;
-  /** ISO date string, e.g. "2024-09-21" */
-  date: string;
-  liters: number;
-  price_per_liter: number;
-  total_cost: number;
-  vehicle: string | null;
-  notes: string | null;
-}
-
-export type NewFuelEntry = Omit<FuelEntry, 'id'>;
+// Re-export the shared types so existing imports from '~/lib/db' keep working.
+export type { FuelEntry, NewFuelEntryInput, YearlyStats, MonthlyBreakdown } from './types';
 
 // ─── Singleton DB handle ───────────────────────────────────────────────────────
 
@@ -21,7 +20,10 @@ const DB_NAME = 'fuel_tracker.db';
 
 let _db: SQLite.SQLiteDatabase | null = null;
 
-/** Returns the open database handle, opening it if needed. */
+/**
+ * Returns the open database handle, lazily opening it on first call.
+ * Exported so fuelRepository.ts can share the same connection.
+ */
 export async function getDB(): Promise<SQLite.SQLiteDatabase> {
   if (!_db) {
     _db = await SQLite.openDatabaseAsync(DB_NAME);
@@ -32,8 +34,10 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
 // ─── Schema init ──────────────────────────────────────────────────────────────
 
 /**
- * Opens the SQLite database and creates the `fuel_entries` table if it does
- * not already exist. Safe to call on every app launch.
+ * Creates the `fuel_entries` table if it does not already exist and enables
+ * WAL journal mode for better concurrent read performance.
+ *
+ * Safe to call on every app launch — uses `CREATE TABLE IF NOT EXISTS`.
  */
 export async function initDB(): Promise<void> {
   const db = await getDB();
@@ -51,71 +55,4 @@ export async function initDB(): Promise<void> {
       notes           TEXT
     );
   `);
-}
-
-// ─── CRUD helpers ─────────────────────────────────────────────────────────────
-
-/** Insert a new fuel entry and return its auto-assigned id. */
-export async function insertFuelEntry(entry: NewFuelEntry): Promise<number> {
-  const db = await getDB();
-  const result = await db.runAsync(
-    `INSERT INTO fuel_entries (date, liters, price_per_liter, total_cost, vehicle, notes)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      entry.date,
-      entry.liters,
-      entry.price_per_liter,
-      entry.total_cost,
-      entry.vehicle ?? null,
-      entry.notes ?? null,
-    ]
-  );
-  return result.lastInsertRowId;
-}
-
-/** Fetch all fuel entries ordered by date descending. */
-export async function getAllFuelEntries(): Promise<FuelEntry[]> {
-  const db = await getDB();
-  return db.getAllAsync<FuelEntry>(
-    'SELECT * FROM fuel_entries ORDER BY date DESC, id DESC'
-  );
-}
-
-/** Fetch a single entry by id, or null if not found. */
-export async function getFuelEntryById(id: number): Promise<FuelEntry | null> {
-  const db = await getDB();
-  return db.getFirstAsync<FuelEntry>(
-    'SELECT * FROM fuel_entries WHERE id = ?',
-    [id]
-  );
-}
-
-/** Delete a fuel entry by id. */
-export async function deleteFuelEntry(id: number): Promise<void> {
-  const db = await getDB();
-  await db.runAsync('DELETE FROM fuel_entries WHERE id = ?', [id]);
-}
-
-/** Aggregate stats: total spend, total liters, entry count. */
-export async function getFuelStats(): Promise<{
-  totalEntries: number;
-  totalLiters: number;
-  totalSpend: number;
-  avgPricePerLiter: number;
-}> {
-  const db = await getDB();
-  const row = await db.getFirstAsync<{
-    totalEntries: number;
-    totalLiters: number;
-    totalSpend: number;
-    avgPricePerLiter: number;
-  }>(
-    `SELECT
-       COUNT(*)            AS totalEntries,
-       COALESCE(SUM(liters), 0)          AS totalLiters,
-       COALESCE(SUM(total_cost), 0)      AS totalSpend,
-       COALESCE(AVG(price_per_liter), 0) AS avgPricePerLiter
-     FROM fuel_entries`
-  );
-  return row ?? { totalEntries: 0, totalLiters: 0, totalSpend: 0, avgPricePerLiter: 0 };
 }
