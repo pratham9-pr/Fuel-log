@@ -17,10 +17,12 @@ import {
   getEntryForDate,
   getMonthSpend,
 } from '~/lib/fuelRepository';
+import { useAppTheme } from '~/lib/theme';
 import type { FuelEntry } from '~/lib/types';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { colors, isDark } = useAppTheme();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,13 +62,14 @@ export default function HomeScreen() {
     }
   }, [todayISO, currentMonthISO]);
 
-  // Refresh data every time the Home screen comes into focus
+  // Refresh data every time Home screen comes into focus
   useFocusEffect(
     useCallback(() => {
       void loadDashboardData();
     }, [loadDashboardData])
   );
 
+  // Pull-to-refresh handler
   const handleRefresh = () => {
     setRefreshing(true);
     void loadDashboardData();
@@ -107,35 +110,45 @@ export default function HomeScreen() {
     }
   };
 
-  // Show prominent card if:
-  // 1. Data has loaded
-  // 2. No entry exists for today
-  // 3. User hasn't dismissed the card in this session
   const shouldShowPrompt = !loading && hasTodayEntry === false && !promptDismissed;
 
   return (
     <ScrollView
-      style={styles.screen}
+      style={[styles.screen, { backgroundColor: colors.background }]}
       contentContainerStyle={styles.content}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          tintColor={colors.refreshColor}
+          colors={[colors.refreshColor]}
+        />
       }
     >
       {/* Top Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerSubtitle}>{formattedToday}</Text>
-          <Text style={styles.headerTitle}>Fuel Log</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
+            {formattedToday}
+          </Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Fuel Log</Text>
         </View>
 
         <View style={styles.headerActions}>
           <Link href="/stats" asChild>
-            <Pressable style={styles.headerIconButton}>
-              <Text style={styles.headerIconText}>📊 Stats</Text>
+            <Pressable
+              style={[
+                styles.headerIconButton,
+                { backgroundColor: colors.card, borderColor: colors.cardBorder },
+              ]}
+            >
+              <Text style={[styles.headerIconText, { color: colors.text }]}>📊 Stats</Text>
             </Pressable>
           </Link>
           <Link href="/add-entry" asChild>
-            <Pressable style={styles.headerPrimaryButton}>
+            <Pressable
+              style={[styles.headerPrimaryButton, { backgroundColor: colors.primary }]}
+            >
               <Text style={styles.headerPrimaryButtonText}>+ Add</Text>
             </Pressable>
           </Link>
@@ -144,14 +157,31 @@ export default function HomeScreen() {
 
       {/* Prominent Daily Top-Up Prompt Card */}
       {shouldShowPrompt && (
-        <View style={styles.promptCard}>
+        <View
+          style={[
+            styles.promptCard,
+            {
+              backgroundColor: colors.primaryLight,
+              borderColor: colors.primaryBorder,
+            },
+          ]}
+        >
           <View style={styles.promptHeader}>
-            <View style={styles.promptIconBadge}>
+            <View
+              style={[
+                styles.promptIconBadge,
+                { backgroundColor: isDark ? '#1E3A8A' : '#DBEAFE' },
+              ]}
+            >
               <Text style={styles.promptIcon}>⛽</Text>
             </View>
             <View style={styles.promptTextContainer}>
-              <Text style={styles.promptTitle}>Did you top up fuel today?</Text>
-              <Text style={styles.promptDescription}>
+              <Text style={[styles.promptTitle, { color: isDark ? '#93C5FD' : '#1E3A8A' }]}>
+                Did you top up fuel today?
+              </Text>
+              <Text
+                style={[styles.promptDescription, { color: isDark ? '#BFDBFE' : '#3B82F6' }]}
+              >
                 Keep your fuel expenses up to date by recording today's fill-up.
               </Text>
             </View>
@@ -159,16 +189,19 @@ export default function HomeScreen() {
 
           <View style={styles.promptButtons}>
             <Pressable
-              style={styles.promptNoButton}
+              style={[
+                styles.promptNoButton,
+                { backgroundColor: colors.card, borderColor: colors.cardBorder },
+              ]}
               onPress={handleDismissPrompt}
-              android_ripple={{ color: '#E2E8F0' }}
             >
-              <Text style={styles.promptNoButtonText}>No</Text>
+              <Text style={[styles.promptNoButtonText, { color: colors.textSecondary }]}>
+                No
+              </Text>
             </Pressable>
             <Pressable
-              style={styles.promptYesButton}
+              style={[styles.promptYesButton, { backgroundColor: colors.primary }]}
               onPress={handleAcceptPrompt}
-              android_ripple={{ color: '#1D4ED8' }}
             >
               <Text style={styles.promptYesButtonText}>Yes, Add Entry</Text>
             </Pressable>
@@ -176,48 +209,71 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* Loading state for initial load */}
+      {/* Loading state */}
       {loading && !refreshing ? (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#2563EB" />
-          <Text style={styles.loaderText}>Loading fuel log…</Text>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loaderText, { color: colors.textMuted }]}>
+            Loading fuel log…
+          </Text>
         </View>
       ) : (
         <>
           {/* Month's Spend Summary Card */}
           <View style={styles.summarySection}>
-            <Text style={styles.sectionHeading}>This Month's Spend</Text>
-            <View style={styles.summaryCard}>
+            <Text style={[styles.sectionHeading, { color: colors.textMuted }]}>
+              This Month's Spend
+            </Text>
+            <View
+              style={[
+                styles.summaryCard,
+                { backgroundColor: colors.card, borderColor: colors.cardBorder },
+              ]}
+            >
               <View style={styles.summaryTopRow}>
                 <View>
-                  <Text style={styles.summaryMonthLabel}>{currentMonthLabel}</Text>
-                  <Text style={styles.summaryAmount}>
-                    ₹{monthSpend.totalSpent.toLocaleString('en-IN', {
+                  <Text style={[styles.summaryMonthLabel, { color: colors.textMuted }]}>
+                    {currentMonthLabel}
+                  </Text>
+                  <Text style={[styles.summaryAmount, { color: colors.text }]}>
+                    ₹
+                    {monthSpend.totalSpent.toLocaleString('en-IN', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
                   </Text>
                 </View>
-                <View style={styles.summaryBadge}>
-                  <Text style={styles.summaryBadgeText}>
+                <View
+                  style={[
+                    styles.summaryBadge,
+                    { backgroundColor: colors.subtleBg },
+                  ]}
+                >
+                  <Text style={[styles.summaryBadgeText, { color: colors.textSecondary }]}>
                     {monthSpend.count} {monthSpend.count === 1 ? 'fill-up' : 'fill-ups'}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.summaryDivider} />
+              <View style={[styles.summaryDivider, { backgroundColor: colors.divider }]} />
 
               <View style={styles.summaryDetailsRow}>
                 <View style={styles.summaryStatItem}>
-                  <Text style={styles.summaryStatLabel}>Total Volume</Text>
-                  <Text style={styles.summaryStatValue}>
+                  <Text style={[styles.summaryStatLabel, { color: colors.textMuted }]}>
+                    Total Volume
+                  </Text>
+                  <Text style={[styles.summaryStatValue, { color: colors.text }]}>
                     {monthSpend.totalLiters.toFixed(2)} L
                   </Text>
                 </View>
-                <View style={styles.summaryStatDivider} />
+                <View
+                  style={[styles.summaryStatDivider, { backgroundColor: colors.divider }]}
+                />
                 <View style={styles.summaryStatItem}>
-                  <Text style={styles.summaryStatLabel}>Avg / Fill-up</Text>
-                  <Text style={styles.summaryStatValue}>
+                  <Text style={[styles.summaryStatLabel, { color: colors.textMuted }]}>
+                    Avg / Fill-up
+                  </Text>
+                  <Text style={[styles.summaryStatValue, { color: colors.text }]}>
                     ₹
                     {monthSpend.count > 0
                       ? (monthSpend.totalSpent / monthSpend.count).toFixed(2)
@@ -231,23 +287,34 @@ export default function HomeScreen() {
           {/* 3 Most Recent Entries */}
           <View style={styles.recentSection}>
             <View style={styles.recentHeaderRow}>
-              <Text style={styles.sectionHeading}>Recent Entries</Text>
+              <Text style={[styles.sectionHeading, { color: colors.textMuted }]}>
+                Recent Entries
+              </Text>
               {totalEntriesCount > 0 && (
-                <Text style={styles.recentCountBadge}>
+                <Text style={[styles.recentCountBadge, { color: colors.textMuted }]}>
                   Showing {recentEntries.length} of {totalEntriesCount}
                 </Text>
               )}
             </View>
 
             {recentEntries.length === 0 ? (
-              <View style={styles.emptyStateCard}>
+              <View
+                style={[
+                  styles.emptyStateCard,
+                  { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                ]}
+              >
                 <Text style={styles.emptyStateIcon}>📋</Text>
-                <Text style={styles.emptyStateTitle}>No entries recorded yet</Text>
-                <Text style={styles.emptyStateMessage}>
+                <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
+                  No entries recorded yet
+                </Text>
+                <Text style={[styles.emptyStateMessage, { color: colors.textMuted }]}>
                   Tap "+ Add" above or respond to the top-up prompt to record your first fuel receipt.
                 </Text>
                 <Link href="/add-entry" asChild>
-                  <Pressable style={styles.emptyStateButton}>
+                  <Pressable
+                    style={[styles.emptyStateButton, { backgroundColor: colors.primary }]}
+                  >
                     <Text style={styles.emptyStateButtonText}>Add First Entry</Text>
                   </Pressable>
                 </Link>
@@ -255,37 +322,86 @@ export default function HomeScreen() {
             ) : (
               <View style={styles.entriesList}>
                 {recentEntries.map((item) => (
-                  <View key={item.id} style={styles.entryCard}>
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.entryCard,
+                      { backgroundColor: colors.card, borderColor: colors.cardBorder },
+                    ]}
+                  >
                     <View style={styles.entryHeader}>
                       <View style={styles.entryDateGroup}>
-                        <Text style={styles.entryDate}>{formatDateLabel(item.date)}</Text>
+                        <Text style={[styles.entryDate, { color: colors.text }]}>
+                          {formatDateLabel(item.date)}
+                        </Text>
                         {item.date === todayISO && (
-                          <View style={styles.todayBadge}>
-                            <Text style={styles.todayBadgeText}>Today</Text>
+                          <View
+                            style={[
+                              styles.todayBadge,
+                              { backgroundColor: isDark ? '#1E3A8A' : '#DBEAFE' },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.todayBadgeText,
+                                { color: isDark ? '#93C5FD' : '#1D4ED8' },
+                              ]}
+                            >
+                              Today
+                            </Text>
                           </View>
                         )}
                       </View>
                       {item.vehicle ? (
-                        <View style={styles.vehicleBadge}>
-                          <Text style={styles.vehicleBadgeText}>🚗 {item.vehicle}</Text>
+                        <View
+                          style={[
+                            styles.vehicleBadge,
+                            {
+                              backgroundColor: colors.subtleBg,
+                              borderColor: colors.cardBorder,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.vehicleBadgeText, { color: colors.textSecondary }]}>
+                            🚗 {item.vehicle}
+                          </Text>
                         </View>
                       ) : null}
                     </View>
 
-                    <View style={styles.entryMetrics}>
+                    <View
+                      style={[
+                        styles.entryMetrics,
+                        { backgroundColor: colors.subtleBg },
+                      ]}
+                    >
                       <View style={styles.entryMetricColumn}>
-                        <Text style={styles.metricLabel}>Volume</Text>
-                        <Text style={styles.metricValue}>{item.liters.toFixed(2)} L</Text>
+                        <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
+                          Volume
+                        </Text>
+                        <Text style={[styles.metricValue, { color: colors.text }]}>
+                          {item.liters.toFixed(2)} L
+                        </Text>
                       </View>
                       <View style={styles.entryMetricColumn}>
-                        <Text style={styles.metricLabel}>Rate</Text>
-                        <Text style={styles.metricValue}>
+                        <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
+                          Rate
+                        </Text>
+                        <Text style={[styles.metricValue, { color: colors.text }]}>
                           ₹{item.price_per_liter.toFixed(2)}
                         </Text>
                       </View>
-                      <View style={[styles.entryMetricColumn, styles.entryMetricHighlight]}>
-                        <Text style={styles.metricLabelHighlight}>Total Cost</Text>
-                        <Text style={styles.metricValueHighlight}>
+                      <View
+                        style={[
+                          styles.entryMetricColumn,
+                          styles.entryMetricHighlight,
+                          { borderLeftColor: colors.cardBorder },
+                        ]}
+                      >
+                        <Text style={[styles.metricLabelHighlight, { color: colors.primary }]}>
+                          Total Cost
+                        </Text>
+                        <Text style={[styles.metricValueHighlight, { color: colors.primary }]}>
                           ₹{item.total_cost.toFixed(2)}
                         </Text>
                       </View>
@@ -293,17 +409,29 @@ export default function HomeScreen() {
 
                     {item.notes ? (
                       <View style={styles.entryNotesContainer}>
-                        <Text style={styles.entryNotesText}>💬 {item.notes}</Text>
+                        <Text style={[styles.entryNotesText, { color: colors.textSecondary }]}>
+                          💬 {item.notes}
+                        </Text>
                       </View>
                     ) : null}
 
-                    <View style={styles.entryFooter}>
+                    <View
+                      style={[
+                        styles.entryFooter,
+                        { borderTopColor: colors.divider },
+                      ]}
+                    >
                       <Pressable
-                        style={styles.deleteButton}
+                        style={[
+                          styles.deleteButton,
+                          { backgroundColor: colors.dangerBg },
+                        ]}
                         onPress={() => handleDeleteEntry(item.id)}
                         hitSlop={8}
                       >
-                        <Text style={styles.deleteButtonText}>Delete</Text>
+                        <Text style={[styles.deleteButtonText, { color: colors.dangerText }]}>
+                          Delete
+                        </Text>
                       </Pressable>
                     </View>
                   </View>
@@ -320,7 +448,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
   },
   content: {
     padding: 16,
@@ -336,14 +463,12 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#64748B',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   headerTitle: {
     fontSize: 26,
     fontWeight: '800',
-    color: '#0F172A',
   },
   headerActions: {
     flexDirection: 'row',
@@ -354,16 +479,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
-    backgroundColor: '#FFFFFF',
   },
   headerIconText: {
-    color: '#334155',
     fontWeight: '600',
     fontSize: 13,
   },
   headerPrimaryButton: {
-    backgroundColor: '#2563EB',
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 8,
@@ -373,17 +494,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 13,
   },
-  /* Prominent Card */
   promptCard: {
-    backgroundColor: '#EFF6FF',
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: '#93C5FD',
     padding: 16,
-    shadowColor: '#2563EB',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
     elevation: 3,
   },
   promptHeader: {
@@ -396,7 +510,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#DBEAFE',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -409,12 +522,10 @@ const styles = StyleSheet.create({
   promptTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1E3A8A',
     marginBottom: 4,
   },
   promptDescription: {
     fontSize: 13,
-    color: '#3B82F6',
     lineHeight: 18,
   },
   promptButtons: {
@@ -427,48 +538,35 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
-    backgroundColor: '#FFFFFF',
   },
   promptNoButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#475569',
   },
   promptYesButton: {
     paddingHorizontal: 18,
     paddingVertical: 9,
     borderRadius: 8,
-    backgroundColor: '#2563EB',
   },
   promptYesButtonText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  /* Section Headings */
   sectionHeading: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#475569',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 10,
   },
-  /* Summary Card */
   summarySection: {
     marginTop: 4,
   },
   summaryCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   summaryTopRow: {
@@ -478,17 +576,14 @@ const styles = StyleSheet.create({
   },
   summaryMonthLabel: {
     fontSize: 13,
-    color: '#64748B',
     fontWeight: '500',
   },
   summaryAmount: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#0F172A',
     marginTop: 2,
   },
   summaryBadge: {
-    backgroundColor: '#F1F5F9',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -496,11 +591,9 @@ const styles = StyleSheet.create({
   summaryBadgeText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#475569',
   },
   summaryDivider: {
     height: 1,
-    backgroundColor: '#F1F5F9',
     marginVertical: 14,
   },
   summaryDetailsRow: {
@@ -514,20 +607,16 @@ const styles = StyleSheet.create({
   },
   summaryStatLabel: {
     fontSize: 12,
-    color: '#94A3B8',
     marginBottom: 2,
   },
   summaryStatValue: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#334155',
   },
   summaryStatDivider: {
     width: 1,
     height: 28,
-    backgroundColor: '#E2E8F0',
   },
-  /* Recent Section */
   recentSection: {
     marginTop: 8,
   },
@@ -539,21 +628,14 @@ const styles = StyleSheet.create({
   },
   recentCountBadge: {
     fontSize: 12,
-    color: '#94A3B8',
   },
   entriesList: {
     gap: 12,
   },
   entryCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
     elevation: 1,
   },
   entryHeader: {
@@ -570,10 +652,8 @@ const styles = StyleSheet.create({
   entryDate: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#1E293B',
   },
   todayBadge: {
-    backgroundColor: '#DBEAFE',
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
@@ -581,24 +661,19 @@ const styles = StyleSheet.create({
   todayBadgeText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#1D4ED8',
   },
   vehicleBadge: {
-    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
   },
   vehicleBadgeText: {
     fontSize: 12,
-    color: '#475569',
     fontWeight: '500',
   },
   entryMetrics: {
     flexDirection: 'row',
-    backgroundColor: '#F8FAFC',
     borderRadius: 10,
     padding: 10,
     justifyContent: 'space-between',
@@ -609,28 +684,23 @@ const styles = StyleSheet.create({
   },
   entryMetricHighlight: {
     borderLeftWidth: 1,
-    borderLeftColor: '#E2E8F0',
   },
   metricLabel: {
     fontSize: 11,
-    color: '#94A3B8',
     marginBottom: 2,
   },
   metricLabelHighlight: {
     fontSize: 11,
-    color: '#2563EB',
     fontWeight: '600',
     marginBottom: 2,
   },
   metricValue: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#334155',
   },
   metricValueHighlight: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#2563EB',
   },
   entryNotesContainer: {
     marginTop: 10,
@@ -638,7 +708,6 @@ const styles = StyleSheet.create({
   },
   entryNotesText: {
     fontSize: 13,
-    color: '#64748B',
     fontStyle: 'italic',
   },
   entryFooter: {
@@ -647,25 +716,21 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
   },
   deleteButton: {
-    paddingVertical: 2,
-    paddingHorizontal: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
   },
   deleteButtonText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#EF4444',
   },
-  /* Empty State */
   emptyStateCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
     marginTop: 4,
   },
   emptyStateIcon: {
@@ -675,18 +740,15 @@ const styles = StyleSheet.create({
   emptyStateTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1E293B',
     marginBottom: 6,
   },
   emptyStateMessage: {
     fontSize: 13,
-    color: '#64748B',
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 16,
   },
   emptyStateButton: {
-    backgroundColor: '#2563EB',
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 8,
@@ -696,7 +758,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 13,
   },
-  /* Loader */
   loaderContainer: {
     paddingVertical: 40,
     alignItems: 'center',
@@ -704,6 +765,5 @@ const styles = StyleSheet.create({
   },
   loaderText: {
     fontSize: 14,
-    color: '#64748B',
   },
 });

@@ -14,8 +14,11 @@ import {
   View,
 } from 'react-native';
 import { addFuelEntry } from '~/lib/fuelRepository';
+import { useAppTheme } from '~/lib/theme';
 
 export default function AddEntryScreen() {
+  const { colors, isDark } = useAppTheme();
+
   const todayDate = new Date();
   const todayISO = format(todayDate, 'yyyy-MM-dd');
   const yesterdayISO = format(subDays(todayDate, 1), 'yyyy-MM-dd');
@@ -108,8 +111,6 @@ export default function AddEntryScreen() {
         notes: notes.trim() || undefined,
       });
 
-      // Navigate back to Home screen. Home screen's useFocusEffect will automatically re-fetch
-      // and refresh today's status, monthly spend, and recent entries.
       router.back();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -121,7 +122,7 @@ export default function AddEntryScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.keyboardAvoid}
+      style={[styles.keyboardAvoid, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
@@ -132,31 +133,53 @@ export default function AddEntryScreen() {
         {/* Date Field */}
         <View style={styles.fieldContainer}>
           <View style={styles.labelRow}>
-            <Text style={styles.fieldLabel}>
+            <Text style={[styles.fieldLabel, { color: colors.text }]}>
               Date <Text style={styles.requiredStar}>*</Text>
             </Text>
             <View style={styles.quickDateRow}>
               <Pressable
-                style={[styles.quickDateChip, date === todayISO && styles.quickDateChipActive]}
+                style={[
+                  styles.quickDateChip,
+                  {
+                    backgroundColor:
+                      date === todayISO ? colors.chipActiveBg : colors.chipBg,
+                  },
+                ]}
                 onPress={() => setDate(todayISO)}
               >
                 <Text
                   style={[
                     styles.quickDateChipText,
-                    date === todayISO && styles.quickDateChipTextActive,
+                    {
+                      color:
+                        date === todayISO
+                          ? colors.chipActiveText
+                          : colors.chipText,
+                    },
                   ]}
                 >
                   Today
                 </Text>
               </Pressable>
               <Pressable
-                style={[styles.quickDateChip, date === yesterdayISO && styles.quickDateChipActive]}
+                style={[
+                  styles.quickDateChip,
+                  {
+                    backgroundColor:
+                      date === yesterdayISO ? colors.chipActiveBg : colors.chipBg,
+                  },
+                ]}
                 onPress={() => setDate(yesterdayISO)}
               >
                 <Text
                   style={[
                     styles.quickDateChipText,
-                    date === yesterdayISO && styles.quickDateChipTextActive,
+                    {
+                      color:
+                        date === yesterdayISO
+                          ? colors.chipActiveText
+                          : colors.chipText,
+                    },
                   ]}
                 >
                   Yesterday
@@ -166,20 +189,35 @@ export default function AddEntryScreen() {
           </View>
 
           <TextInput
-            style={[styles.textInput, dateError && styles.textInputError]}
+            style={[
+              styles.textInput,
+              {
+                backgroundColor: colors.inputBg,
+                borderColor: colors.inputBorder,
+                color: colors.inputText,
+              },
+              dateError && {
+                borderColor: colors.dangerText,
+                backgroundColor: colors.dangerBg,
+              },
+            ]}
             value={date}
             onChangeText={setDate}
             placeholder="YYYY-MM-DD"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.placeholderText}
             keyboardType="numbers-and-punctuation"
             maxLength={10}
           />
-          {dateError ? <Text style={styles.errorText}>{dateError}</Text> : null}
+          {dateError ? (
+            <Text style={[styles.errorText, { color: colors.dangerText }]}>
+              {dateError}
+            </Text>
+          ) : null}
         </View>
 
         {/* Liters Field */}
         <View style={styles.fieldContainer}>
-          <Text style={styles.fieldLabel}>
+          <Text style={[styles.fieldLabel, { color: colors.text }]}>
             Liters Filled <Text style={styles.requiredStar}>*</Text>
           </Text>
           <View style={styles.inputWithSuffix}>
@@ -187,60 +225,121 @@ export default function AddEntryScreen() {
               style={[
                 styles.textInput,
                 styles.inputFlex,
-                litersError && styles.textInputError,
+                {
+                  backgroundColor: colors.inputBg,
+                  borderColor: colors.inputBorder,
+                  color: colors.inputText,
+                },
+                litersError && {
+                  borderColor: colors.dangerText,
+                  backgroundColor: colors.dangerBg,
+                },
               ]}
               value={liters}
               onChangeText={setLiters}
               placeholder="e.g. 35.50"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.placeholderText}
               keyboardType="decimal-pad"
             />
-            <View style={styles.suffixBadge}>
-              <Text style={styles.suffixText}>L</Text>
+            <View style={[styles.suffixBadge, { backgroundColor: colors.subtleBg }]}>
+              <Text style={[styles.suffixText, { color: colors.textSecondary }]}>L</Text>
             </View>
           </View>
-          {litersError ? <Text style={styles.errorText}>{litersError}</Text> : null}
+          {litersError ? (
+            <Text style={[styles.errorText, { color: colors.dangerText }]}>
+              {litersError}
+            </Text>
+          ) : null}
         </View>
 
         {/* Price Per Liter Field */}
         <View style={styles.fieldContainer}>
-          <Text style={styles.fieldLabel}>
+          <Text style={[styles.fieldLabel, { color: colors.text }]}>
             Price per Liter <Text style={styles.requiredStar}>*</Text>
           </Text>
           <View style={styles.inputWithPrefix}>
             <View style={styles.prefixBadge}>
-              <Text style={styles.prefixText}>₹</Text>
+              <Text style={[styles.prefixText, { color: colors.textSecondary }]}>₹</Text>
             </View>
             <TextInput
               style={[
                 styles.textInput,
                 styles.inputFlex,
-                priceError && styles.textInputError,
+                {
+                  backgroundColor: colors.inputBg,
+                  borderColor: colors.inputBorder,
+                  color: colors.inputText,
+                },
+                priceError && {
+                  borderColor: colors.dangerText,
+                  backgroundColor: colors.dangerBg,
+                },
               ]}
               value={pricePerLiter}
               onChangeText={setPricePerLiter}
               placeholder="e.g. 102.50"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.placeholderText}
               keyboardType="decimal-pad"
             />
           </View>
-          {priceError ? <Text style={styles.errorText}>{priceError}</Text> : null}
+          {priceError ? (
+            <Text style={[styles.errorText, { color: colors.dangerText }]}>
+              {priceError}
+            </Text>
+          ) : null}
         </View>
 
         {/* Live Auto-Calculated Read-Only Total Cost */}
-        <View style={styles.totalCostCard}>
+        <View
+          style={[
+            styles.totalCostCard,
+            {
+              backgroundColor: colors.primaryLight,
+              borderColor: colors.primaryBorder,
+            },
+          ]}
+        >
           <View style={styles.totalCostHeader}>
-            <Text style={styles.totalCostTitle}>Total Cost</Text>
-            <View style={styles.readOnlyBadge}>
-              <Text style={styles.readOnlyBadgeText}>Auto-calculated</Text>
+            <Text
+              style={[
+                styles.totalCostTitle,
+                { color: isDark ? '#93C5FD' : '#1E40AF' },
+              ]}
+            >
+              Total Cost
+            </Text>
+            <View
+              style={[
+                styles.readOnlyBadge,
+                { backgroundColor: isDark ? '#1E3A8A' : '#DBEAFE' },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.readOnlyBadgeText,
+                  { color: isDark ? '#93C5FD' : '#1D4ED8' },
+                ]}
+              >
+                Auto-calculated
+              </Text>
             </View>
           </View>
 
-          <Text style={styles.totalCostValue}>
+          <Text
+            style={[
+              styles.totalCostValue,
+              { color: isDark ? '#60A5FA' : '#1D4ED8' },
+            ]}
+          >
             {calculatedTotal !== null ? `₹${calculatedTotal}` : '₹0.00'}
           </Text>
 
-          <Text style={styles.totalCostFormula}>
+          <Text
+            style={[
+              styles.totalCostFormula,
+              { color: isDark ? '#93C5FD' : '#3B82F6' },
+            ]}
+          >
             {calculatedTotal !== null
               ? `${parsedLiters.toFixed(2)} L × ₹${parsedPrice.toFixed(2)} / L`
               : 'Enter liters and price per liter to calculate'}
@@ -249,26 +348,45 @@ export default function AddEntryScreen() {
 
         {/* Optional Vehicle Input */}
         <View style={styles.fieldContainer}>
-          <Text style={styles.fieldLabel}>Vehicle (Optional)</Text>
+          <Text style={[styles.fieldLabel, { color: colors.text }]}>
+            Vehicle (Optional)
+          </Text>
           <TextInput
-            style={styles.textInput}
+            style={[
+              styles.textInput,
+              {
+                backgroundColor: colors.inputBg,
+                borderColor: colors.inputBorder,
+                color: colors.inputText,
+              },
+            ]}
             value={vehicle}
             onChangeText={setVehicle}
             placeholder="e.g. Honda City, Hunter 350"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.placeholderText}
             maxLength={40}
           />
         </View>
 
         {/* Optional Notes Input */}
         <View style={styles.fieldContainer}>
-          <Text style={styles.fieldLabel}>Notes (Optional)</Text>
+          <Text style={[styles.fieldLabel, { color: colors.text }]}>
+            Notes (Optional)
+          </Text>
           <TextInput
-            style={[styles.textInput, styles.textAreaInput]}
+            style={[
+              styles.textInput,
+              styles.textAreaInput,
+              {
+                backgroundColor: colors.inputBg,
+                borderColor: colors.inputBorder,
+                color: colors.inputText,
+              },
+            ]}
             value={notes}
             onChangeText={setNotes}
             placeholder="e.g. Full tank at Shell station, highway trip"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.placeholderText}
             multiline
             numberOfLines={3}
             textAlignVertical="top"
@@ -277,10 +395,13 @@ export default function AddEntryScreen() {
 
         {/* Save Submit Button */}
         <Pressable
-          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+          style={[
+            styles.saveButton,
+            { backgroundColor: colors.primary },
+            saving && styles.saveButtonDisabled,
+          ]}
           onPress={handleSave}
           disabled={saving}
-          android_ripple={{ color: '#1D4ED8' }}
         >
           {saving ? (
             <View style={styles.buttonLoadingRow}>
@@ -299,7 +420,6 @@ export default function AddEntryScreen() {
 const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
   },
   container: {
     flex: 1,
@@ -320,7 +440,6 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#334155',
   },
   requiredStar: {
     color: '#EF4444',
@@ -333,36 +452,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
-    backgroundColor: '#E2E8F0',
-  },
-  quickDateChipActive: {
-    backgroundColor: '#DBEAFE',
   },
   quickDateChipText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#64748B',
-  },
-  quickDateChipTextActive: {
-    color: '#1D4ED8',
   },
   textInput: {
-    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#0F172A',
-  },
-  textInputError: {
-    borderColor: '#EF4444',
-    backgroundColor: '#FEF2F2',
   },
   errorText: {
     fontSize: 12,
-    color: '#DC2626',
     fontWeight: '500',
     marginTop: 2,
   },
@@ -382,7 +485,6 @@ const styles = StyleSheet.create({
   suffixBadge: {
     position: 'absolute',
     right: 14,
-    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
@@ -390,7 +492,6 @@ const styles = StyleSheet.create({
   suffixText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#64748B',
   },
   prefixBadge: {
     position: 'absolute',
@@ -400,18 +501,14 @@ const styles = StyleSheet.create({
   prefixText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#64748B',
   },
   textAreaInput: {
     minHeight: 85,
     paddingTop: 12,
   },
-  /* Read-only Live Total Card */
   totalCostCard: {
-    backgroundColor: '#EFF6FF',
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: '#BFDBFE',
     padding: 16,
     marginVertical: 4,
   },
@@ -424,12 +521,10 @@ const styles = StyleSheet.create({
   totalCostTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1E40AF',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   readOnlyBadge: {
-    backgroundColor: '#DBEAFE',
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
@@ -437,31 +532,22 @@ const styles = StyleSheet.create({
   readOnlyBadgeText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#1D4ED8',
   },
   totalCostValue: {
     fontSize: 30,
     fontWeight: '800',
-    color: '#1D4ED8',
     marginVertical: 2,
   },
   totalCostFormula: {
     fontSize: 13,
-    color: '#3B82F6',
     fontWeight: '500',
   },
-  /* Button */
   saveButton: {
-    backgroundColor: '#2563EB',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
-    shadowColor: '#2563EB',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
     elevation: 3,
   },
   saveButtonDisabled: {
