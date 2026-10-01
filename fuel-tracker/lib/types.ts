@@ -33,6 +33,11 @@ export interface NewFuelEntryInput {
   liters: number;
   /** Cost per litre at time of fill-up. */
   pricePerLiter: number;
+  /**
+   * Optional explicit total spend. When provided (amount-first entry flows),
+   * it is stored as `total_cost` verbatim instead of `liters × pricePerLiter`.
+   */
+  totalCost?: number;
   /** Optional vehicle identifier. */
   vehicle?: string;
   /** Optional free-text notes. */

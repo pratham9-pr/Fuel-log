@@ -1,5 +1,7 @@
 import { format, parseISO } from 'date-fns';
 import { Link, useRouter, useFocusEffect } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,18 +13,29 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Feather, Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   deleteEntry,
   getAllEntries,
   getEntryForDate,
   getMonthSpend,
 } from '~/lib/fuelRepository';
-import { useAppTheme } from '~/lib/theme';
+import {
+  colors,
+  elevation,
+  gradients,
+  radius,
+  spacing,
+  t,
+  tabular,
+  typography,
+} from '~/lib/theme';
 import type { FuelEntry } from '~/lib/types';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { colors, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -112,326 +125,248 @@ export default function HomeScreen() {
 
   const shouldShowPrompt = !loading && hasTodayEntry === false && !promptDismissed;
 
+  // Spend per litre for the current month (0 when nothing logged yet)
+  const monthAvgPricePerLiter =
+    monthSpend.totalLiters > 0 ? monthSpend.totalSpent / monthSpend.totalLiters : 0;
+
+  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+
   return (
     <ScrollView
-      style={[styles.screen, { backgroundColor: colors.background }]}
-      contentContainerStyle={styles.content}
+      style={styles.screen}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={handleRefresh}
-          tintColor={colors.refreshColor}
-          colors={[colors.refreshColor]}
+          tintColor={colors.textSecondary}
+          colors={[colors.textSecondary]}
         />
       }
     >
-      {/* Top Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>
-            {formattedToday}
-          </Text>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>Fuel Log</Text>
+      {/* Obsidian Fuel app bar: brand tile + date label + quick nav */}
+      <View style={styles.headerRow}>
+        <View style={styles.brandRow}>
+          <View style={styles.brandTile}>
+            <Ionicons name="car-outline" size={20} color={colors.textPrimary} />
+          </View>
+          <View style={styles.brandText}>
+            <Text style={styles.brandLabel} numberOfLines={1}>
+              {formattedToday}
+            </Text>
+            <Text style={styles.brandTitle}>Fuel Tracker</Text>
+          </View>
         </View>
 
         <View style={styles.headerActions}>
           <Link href="/stats" asChild>
-            <Pressable
-              style={[
-                styles.headerIconButton,
-                { backgroundColor: colors.card, borderColor: colors.cardBorder },
-              ]}
-            >
-              <Text style={[styles.headerIconText, { color: colors.text }]}>📊 Stats</Text>
+            <Pressable style={styles.navPill}>
+              <Text style={styles.navPillText}>Stats</Text>
             </Pressable>
           </Link>
           <Link href="/add-entry" asChild>
-            <Pressable
-              style={[styles.headerPrimaryButton, { backgroundColor: colors.primary }]}
-            >
-              <Text style={styles.headerPrimaryButtonText}>+ Add</Text>
+            <Pressable style={styles.navTile}>
+              <Ionicons name="add" size={20} color={colors.onPrimary} />
             </Pressable>
           </Link>
         </View>
       </View>
 
-      {/* Prominent Daily Top-Up Prompt Card */}
+      {/* Daily check-in prompt */}
       {shouldShowPrompt && (
-        <View
-          style={[
-            styles.promptCard,
-            {
-              backgroundColor: colors.primaryLight,
-              borderColor: colors.primaryBorder,
-            },
-          ]}
+        <LinearGradient
+          colors={gradients.prompt}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.promptCard}
         >
-          <View style={styles.promptHeader}>
-            <View
-              style={[
-                styles.promptIconBadge,
-                { backgroundColor: isDark ? '#1E3A8A' : '#DBEAFE' },
-              ]}
-            >
-              <Text style={styles.promptIcon}>⛽</Text>
+          <View style={styles.promptHeaderRow}>
+            <View style={styles.promptHeaderLeft}>
+              <View style={styles.promptDot} />
+              <Text style={styles.promptLabel}>Daily Telemetry Prompt</Text>
             </View>
-            <View style={styles.promptTextContainer}>
-              <Text style={[styles.promptTitle, { color: isDark ? '#93C5FD' : '#1E3A8A' }]}>
-                Did you top up fuel today?
-              </Text>
-              <Text
-                style={[styles.promptDescription, { color: isDark ? '#BFDBFE' : '#3B82F6' }]}
-              >
-                Keep your fuel expenses up to date by recording today's fill-up.
-              </Text>
-            </View>
+            <Text style={styles.promptDate} numberOfLines={1}>
+              {formattedToday}
+            </Text>
           </View>
 
+          <Text style={styles.promptTitle}>Did you top up fuel today?</Text>
+          <Text style={styles.promptDescription}>
+            Keep your fuel expenses up to date by recording today&apos;s fill-up.
+          </Text>
+
           <View style={styles.promptButtons}>
-            <Pressable
-              style={[
-                styles.promptNoButton,
-                { backgroundColor: colors.card, borderColor: colors.cardBorder },
-              ]}
-              onPress={handleDismissPrompt}
-            >
-              <Text style={[styles.promptNoButtonText, { color: colors.textSecondary }]}>
-                No
-              </Text>
+            <Pressable style={styles.ghostButton} onPress={handleDismissPrompt}>
+              <Text style={styles.ghostButtonText}>No, didn&apos;t fill</Text>
             </Pressable>
-            <Pressable
-              style={[styles.promptYesButton, { backgroundColor: colors.primary }]}
-              onPress={handleAcceptPrompt}
-            >
-              <Text style={styles.promptYesButtonText}>Yes, Add Entry</Text>
+            <Pressable style={styles.primaryButton} onPress={handleAcceptPrompt}>
+              <Ionicons name="add-circle-outline" size={18} color={colors.onPrimary} />
+              <Text style={styles.primaryButtonText}>Log Fill-up</Text>
             </Pressable>
           </View>
-        </View>
+        </LinearGradient>
       )}
 
       {/* Loading state */}
       {loading && !refreshing ? (
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loaderText, { color: colors.textMuted }]}>
-            Loading fuel log…
-          </Text>
+          <ActivityIndicator size="large" color={colors.textPrimary} />
+          <Text style={styles.loaderText}>Loading fuel log…</Text>
         </View>
       ) : (
         <>
-          {/* Month's Spend Summary Card */}
-          <View style={styles.summarySection}>
-            <Text style={[styles.sectionHeading, { color: colors.textMuted }]}>
-              This Month's Spend
-            </Text>
-            <View
-              style={[
-                styles.summaryCard,
-                { backgroundColor: colors.card, borderColor: colors.cardBorder },
-              ]}
-            >
-              <View style={styles.summaryTopRow}>
-                <View>
-                  <Text style={[styles.summaryMonthLabel, { color: colors.textMuted }]}>
-                    {currentMonthLabel}
-                  </Text>
-                  <Text style={[styles.summaryAmount, { color: colors.text }]}>
-                    ₹
-                    {monthSpend.totalSpent.toLocaleString('en-IN', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+          {/* Current period summary */}
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHeaderRow}>
+              <View style={styles.summaryHeaderText}>
+                <Text style={styles.summaryPeriodLabel}>Current Period</Text>
+                <Text style={styles.summaryMonthTitle}>{currentMonthLabel}</Text>
+              </View>
+              <View style={styles.summaryChip}>
+                <Text style={styles.summaryChipText}>
+                  {monthSpend.count} {monthSpend.count === 1 ? 'fill-up' : 'fill-ups'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.summaryValueRow}>
+              <Text style={styles.summaryAmount}>
+                ₹
+                {monthSpend.totalSpent.toLocaleString('en-IN', {
+                  maximumFractionDigits: 0,
+                })}
+              </Text>
+              <Text style={styles.summaryValueLabel}>Total Spend</Text>
+            </View>
+
+            <View style={styles.bentoRow}>
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoLabelRow}>
+                  <Ionicons name="water-outline" size={16} color={colors.textTertiary} />
+                  <Text style={styles.bentoLabel} numberOfLines={1}>
+                    Volume
                   </Text>
                 </View>
-                <View
-                  style={[
-                    styles.summaryBadge,
-                    { backgroundColor: colors.subtleBg },
-                  ]}
-                >
-                  <Text style={[styles.summaryBadgeText, { color: colors.textSecondary }]}>
-                    {monthSpend.count} {monthSpend.count === 1 ? 'fill-up' : 'fill-ups'}
+                <View style={styles.bentoValueRow}>
+                  <Text style={styles.bentoValue}>{monthSpend.totalLiters.toFixed(1)}</Text>
+                  <Text style={styles.bentoUnit}>L</Text>
+                </View>
+              </View>
+
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoLabelRow}>
+                  <Ionicons name="car-outline" size={16} color={colors.textTertiary} />
+                  <Text style={styles.bentoLabel} numberOfLines={1}>
+                    Fills
+                  </Text>
+                </View>
+                <View style={styles.bentoValueRow}>
+                  <Text style={styles.bentoValue}>{monthSpend.count}</Text>
+                  <Text style={styles.bentoUnit}>
+                    {monthSpend.count === 1 ? 'time' : 'times'}
                   </Text>
                 </View>
               </View>
 
-              <View style={[styles.summaryDivider, { backgroundColor: colors.divider }]} />
-
-              <View style={styles.summaryDetailsRow}>
-                <View style={styles.summaryStatItem}>
-                  <Text style={[styles.summaryStatLabel, { color: colors.textMuted }]}>
-                    Total Volume
-                  </Text>
-                  <Text style={[styles.summaryStatValue, { color: colors.text }]}>
-                    {monthSpend.totalLiters.toFixed(2)} L
+              <View style={styles.bentoTile}>
+                <View style={styles.bentoLabelRow}>
+                  <Ionicons name="receipt-outline" size={16} color={colors.textTertiary} />
+                  <Text style={styles.bentoLabel} numberOfLines={1}>
+                    Avg Cost
                   </Text>
                 </View>
-                <View
-                  style={[styles.summaryStatDivider, { backgroundColor: colors.divider }]}
-                />
-                <View style={styles.summaryStatItem}>
-                  <Text style={[styles.summaryStatLabel, { color: colors.textMuted }]}>
-                    Avg / Fill-up
-                  </Text>
-                  <Text style={[styles.summaryStatValue, { color: colors.text }]}>
-                    ₹
-                    {monthSpend.count > 0
-                      ? (monthSpend.totalSpent / monthSpend.count).toFixed(2)
-                      : '0.00'}
-                  </Text>
+                <View style={styles.bentoValueRow}>
+                  <Text style={styles.bentoValue}>{monthAvgPricePerLiter.toFixed(2)}</Text>
+                  <Text style={styles.bentoUnit}>/L</Text>
                 </View>
               </View>
             </View>
           </View>
 
           {/* 3 Most Recent Entries */}
-          <View style={styles.recentSection}>
-            <View style={styles.recentHeaderRow}>
-              <Text style={[styles.sectionHeading, { color: colors.textMuted }]}>
-                Recent Entries
-              </Text>
-              {totalEntriesCount > 0 && (
-                <Text style={[styles.recentCountBadge, { color: colors.textMuted }]}>
-                  Showing {recentEntries.length} of {totalEntriesCount}
-                </Text>
-              )}
+          <View>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionTitleRow}>
+                <Text style={styles.sectionTitle}>Recent Fill-Ups</Text>
+                {totalEntriesCount > 0 && (
+                  <View style={styles.sectionCountPill}>
+                    <Text style={styles.sectionCountText}>
+                      {recentEntries.length} of {totalEntriesCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Link href="/stats" asChild>
+                <Pressable style={styles.viewAll}>
+                  <Text style={styles.viewAllText}>View all</Text>
+                  <Ionicons
+                    name="chevron-forward-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                </Pressable>
+              </Link>
             </View>
 
             {recentEntries.length === 0 ? (
-              <View
-                style={[
-                  styles.emptyStateCard,
-                  { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                ]}
-              >
-                <Text style={styles.emptyStateIcon}>📋</Text>
-                <Text style={[styles.emptyStateTitle, { color: colors.text }]}>
-                  No entries recorded yet
-                </Text>
-                <Text style={[styles.emptyStateMessage, { color: colors.textMuted }]}>
-                  Tap "+ Add" above or respond to the top-up prompt to record your first fuel receipt.
+              <View style={styles.emptyCard}>
+                <Feather name="clipboard" size={24} color={colors.textTertiary} />
+                <Text style={styles.emptyTitle}>No entries recorded yet</Text>
+                <Text style={styles.emptyMessage}>
+                  Tap the + button above or respond to the top-up prompt to record your first
+                  fuel receipt.
                 </Text>
                 <Link href="/add-entry" asChild>
-                  <Pressable
-                    style={[styles.emptyStateButton, { backgroundColor: colors.primary }]}
-                  >
-                    <Text style={styles.emptyStateButtonText}>Add First Entry</Text>
+                  <Pressable style={styles.emptyButton}>
+                    <Text style={styles.emptyButtonText}>Add First Entry</Text>
                   </Pressable>
                 </Link>
               </View>
             ) : (
               <View style={styles.entriesList}>
                 {recentEntries.map((item) => (
-                  <View
-                    key={item.id}
-                    style={[
-                      styles.entryCard,
-                      { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                    ]}
-                  >
-                    <View style={styles.entryHeader}>
-                      <View style={styles.entryDateGroup}>
-                        <Text style={[styles.entryDate, { color: colors.text }]}>
-                          {formatDateLabel(item.date)}
-                        </Text>
+                  <View key={item.id} style={styles.entryCard}>
+                    <View style={styles.entryTile}>
+                      <Ionicons name="car-outline" size={20} color={colors.textSecondary} />
+                    </View>
+
+                    <View style={styles.entryBody}>
+                      <View style={styles.entryTitleRow}>
+                        <Text style={styles.entryDate}>{formatDateLabel(item.date)}</Text>
                         {item.date === todayISO && (
-                          <View
-                            style={[
-                              styles.todayBadge,
-                              { backgroundColor: isDark ? '#1E3A8A' : '#DBEAFE' },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.todayBadgeText,
-                                { color: isDark ? '#93C5FD' : '#1D4ED8' },
-                              ]}
-                            >
-                              Today
-                            </Text>
+                          <View style={styles.entryTag}>
+                            <Text style={styles.entryTagText}>Today</Text>
                           </View>
                         )}
+                        {item.vehicle ? (
+                          <View style={styles.entryVehicleChip}>
+                            <Text style={styles.entryVehicleText} numberOfLines={1}>
+                              {item.vehicle}
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
-                      {item.vehicle ? (
-                        <View
-                          style={[
-                            styles.vehicleBadge,
-                            {
-                              backgroundColor: colors.subtleBg,
-                              borderColor: colors.cardBorder,
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.vehicleBadgeText, { color: colors.textSecondary }]}>
-                            🚗 {item.vehicle}
-                          </Text>
-                        </View>
+                      <View style={styles.entryMetaRow}>
+                        <Ionicons name="water-outline" size={16} color={colors.textTertiary} />
+                        <Text style={styles.entryMetaText} numberOfLines={1}>
+                          {item.liters.toFixed(2)} L · ₹{item.price_per_liter.toFixed(2)} / L
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.entryRight}>
+                      <Text style={styles.entryTotal}>₹{item.total_cost.toFixed(2)}</Text>
+                      {item.notes ? (
+                        <Text style={styles.entryNotes} numberOfLines={1}>
+                          {item.notes}
+                        </Text>
                       ) : null}
-                    </View>
-
-                    <View
-                      style={[
-                        styles.entryMetrics,
-                        { backgroundColor: colors.subtleBg },
-                      ]}
-                    >
-                      <View style={styles.entryMetricColumn}>
-                        <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
-                          Volume
-                        </Text>
-                        <Text style={[styles.metricValue, { color: colors.text }]}>
-                          {item.liters.toFixed(2)} L
-                        </Text>
-                      </View>
-                      <View style={styles.entryMetricColumn}>
-                        <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
-                          Rate
-                        </Text>
-                        <Text style={[styles.metricValue, { color: colors.text }]}>
-                          ₹{item.price_per_liter.toFixed(2)}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.entryMetricColumn,
-                          styles.entryMetricHighlight,
-                          { borderLeftColor: colors.cardBorder },
-                        ]}
-                      >
-                        <Text style={[styles.metricLabelHighlight, { color: colors.primary }]}>
-                          Total Cost
-                        </Text>
-                        <Text style={[styles.metricValueHighlight, { color: colors.primary }]}>
-                          ₹{item.total_cost.toFixed(2)}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {item.notes ? (
-                      <View style={styles.entryNotesContainer}>
-                        <Text style={[styles.entryNotesText, { color: colors.textSecondary }]}>
-                          💬 {item.notes}
-                        </Text>
-                      </View>
-                    ) : null}
-
-                    <View
-                      style={[
-                        styles.entryFooter,
-                        { borderTopColor: colors.divider },
-                      ]}
-                    >
                       <Pressable
-                        style={[
-                          styles.deleteButton,
-                          { backgroundColor: colors.dangerBg },
-                        ]}
+                        style={styles.entryDelete}
                         onPress={() => handleDeleteEntry(item.id)}
                         hitSlop={8}
                       >
-                        <Text style={[styles.deleteButtonText, { color: colors.dangerText }]}>
-                          Delete
-                        </Text>
+                        <Ionicons name="trash-outline" size={20} color={colors.metricDanger} />
                       </Pressable>
                     </View>
                   </View>
@@ -441,6 +376,21 @@ export default function HomeScreen() {
           </View>
         </>
       )}
+
+      {/* Local storage status */}
+      <View style={styles.statusCard}>
+        <View style={styles.statusHeaderRow}>
+          <View style={styles.statusTitleRow}>
+            <View style={styles.statusDot} />
+            <Text style={styles.statusTitle}>Local SQLite Active</Text>
+          </View>
+          <Text style={styles.statusVersion}>v{appVersion} · Offline</Text>
+        </View>
+        <Text style={styles.statusBody}>
+          All entries are stored on-device in your local SQLite database. No cloud sync
+          required.
+        </Text>
+      </View>
     </ScrollView>
   );
 }
@@ -448,322 +398,452 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    backgroundColor: colors.surfaceCanvas,
   },
   content: {
-    padding: 16,
+    paddingHorizontal: spacing.margin,
     paddingBottom: 40,
-    gap: 16,
+    gap: spacing.lg,
   },
-  header: {
+
+  // ─── App bar ────────────────────────────────────────────────────────────
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    gap: spacing.sm,
   },
-  headerSubtitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-  },
-  headerActions: {
+  brandRow: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
   },
-  headerIconButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+  brandTile: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.default,
+    backgroundColor: colors.surfaceCard,
     borderWidth: 1,
-  },
-  headerIconText: {
-    fontWeight: '600',
-    fontSize: 13,
-  },
-  headerPrimaryButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  headerPrimaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  promptCard: {
-    borderRadius: 16,
-    borderWidth: 1.5,
-    padding: 16,
-    elevation: 3,
-  },
-  promptHeader: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
-    marginBottom: 14,
-  },
-  promptIconBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    borderColor: colors.borderSubtle,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  promptIcon: {
-    fontSize: 22,
+  brandText: {
+    flexShrink: 1,
   },
-  promptTextContainer: {
-    flex: 1,
+  brandLabel: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
+  },
+  brandTitle: {
+    ...t(typography.headlineSm),
+    color: colors.textPrimary,
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  navPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: radius.default,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  navPillText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
+  },
+  navTile: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.default,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ─── Daily check-in prompt ──────────────────────────────────────────────
+  promptCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    padding: spacing.md,
+  },
+  promptHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  promptHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 1,
+  },
+  promptDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.metricPeak,
+  },
+  promptLabel: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
+  },
+  promptDate: {
+    ...t(typography.labelMd),
+    color: colors.textSecondary,
+    flexShrink: 1,
+    textAlign: 'right',
   },
   promptTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 4,
+    ...t(typography.headlineSm),
+    color: colors.textPrimary,
+    marginTop: spacing.md,
   },
   promptDescription: {
-    fontSize: 13,
-    lineHeight: 18,
+    ...t(typography.bodyMd),
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
   },
   promptButtons: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
+    gap: spacing.sm,
+    marginTop: spacing.md,
   },
-  promptNoButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 8,
-    borderWidth: 1,
+  ghostButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radius.default,
+    backgroundColor: colors.surfaceElevated,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
   },
-  promptNoButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+  ghostButtonText: {
+    ...t(typography.labelMd),
+    color: colors.textSecondary,
   },
-  promptYesButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 8,
+  primaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radius.default,
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
   },
-  promptYesButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  primaryButtonText: {
+    ...t({ ...typography.labelMd, fontWeight: '600' }),
+    color: colors.onPrimary,
   },
-  sectionHeading: {
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 10,
-  },
-  summarySection: {
-    marginTop: 4,
-  },
+
+  // ─── Current period summary ─────────────────────────────────────────────
   summaryCard: {
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    elevation: 2,
+    ...elevation.level1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
   },
-  summaryTopRow: {
+  summaryHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: spacing.sm,
   },
-  summaryMonthLabel: {
-    fontSize: 13,
-    fontWeight: '500',
+  summaryHeaderText: {
+    flexShrink: 1,
   },
-  summaryAmount: {
-    fontSize: 28,
-    fontWeight: '800',
+  summaryPeriodLabel: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
+  },
+  summaryMonthTitle: {
+    ...t(typography.headlineSm),
+    color: colors.textPrimary,
     marginTop: 2,
   },
-  summaryBadge: {
+  summaryChip: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: radius.default,
+    backgroundColor: colors.surfaceElevated,
   },
-  summaryBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
+  summaryChipText: {
+    ...t(typography.labelMd),
+    color: colors.textSecondary,
   },
-  summaryDivider: {
-    height: 1,
-    marginVertical: 14,
-  },
-  summaryDetailsRow: {
+  summaryValueRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
+    alignItems: 'baseline',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    flexWrap: 'wrap',
   },
-  summaryStatItem: {
-    alignItems: 'center',
+  summaryAmount: {
+    ...t(typography.metricXl),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  summaryValueLabel: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
+  },
+  bentoRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  bentoTile: {
     flex: 1,
+    minWidth: 0,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.default,
+    padding: 10,
+    gap: spacing.sm,
   },
-  summaryStatLabel: {
-    fontSize: 12,
-    marginBottom: 2,
+  bentoLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
-  summaryStatValue: {
-    fontSize: 16,
-    fontWeight: '700',
+  bentoLabel: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
+    flexShrink: 1,
   },
-  summaryStatDivider: {
-    width: 1,
-    height: 28,
+  bentoValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
   },
-  recentSection: {
-    marginTop: 8,
+  bentoValue: {
+    ...t(typography.metricMd),
+    ...tabular,
+    color: colors.textPrimary,
   },
-  recentHeaderRow: {
+  bentoUnit: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
+  },
+
+  // ─── Recent fill-ups ────────────────────────────────────────────────────
+  sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
   },
-  recentCountBadge: {
-    fontSize: 12,
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
+  },
+  sectionTitle: {
+    ...t(typography.headlineSm),
+    color: colors.textPrimary,
+  },
+  sectionCountPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceInteractive,
+  },
+  sectionCountText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
+  },
+  viewAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: spacing.xs,
+  },
+  viewAllText: {
+    ...t(typography.labelMd),
+    color: colors.textSecondary,
   },
   entriesList: {
-    gap: 12,
+    gap: spacing.gutter,
   },
   entryCard: {
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    elevation: 1,
-  },
-  entryHeader: {
+    ...elevation.level1,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+    gap: 12, // icon-tile gutter from the mockup
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    alignItems: 'flex-start',
   },
-  entryDateGroup: {
+  entryTile: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.default,
+    backgroundColor: colors.surfaceElevated,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  entryBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  entryTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
+    flexWrap: 'wrap',
   },
   entryDate: {
-    fontSize: 15,
-    fontWeight: '700',
+    ...t(typography.titleMd),
+    color: colors.textPrimary,
   },
-  todayBadge: {
-    paddingHorizontal: 7,
+  entryTag: {
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceInteractive,
   },
-  todayBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+  entryTagText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
   },
-  vehicleBadge: {
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+  entryVehicleChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceElevated,
+    maxWidth: 110,
   },
-  vehicleBadgeText: {
-    fontSize: 12,
-    fontWeight: '500',
+  entryVehicleText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
   },
-  entryMetrics: {
+  entryMetaRow: {
     flexDirection: 'row',
-    borderRadius: 10,
-    padding: 10,
-    justifyContent: 'space-between',
-  },
-  entryMetricColumn: {
-    flex: 1,
     alignItems: 'center',
-  },
-  entryMetricHighlight: {
-    borderLeftWidth: 1,
-  },
-  metricLabel: {
-    fontSize: 11,
-    marginBottom: 2,
-  },
-  metricLabelHighlight: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  metricValue: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  metricValueHighlight: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  entryNotesContainer: {
-    marginTop: 10,
-    paddingHorizontal: 4,
-  },
-  entryNotesText: {
-    fontSize: 13,
-    fontStyle: 'italic',
-  },
-  entryFooter: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-  },
-  deleteButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-  },
-  deleteButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  emptyStateCard: {
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
+    gap: 6,
     marginTop: 4,
   },
-  emptyStateIcon: {
-    fontSize: 36,
-    marginBottom: 10,
+  entryMetaText: {
+    ...t(typography.labelMd),
+    ...tabular,
+    color: colors.textTertiary,
+    flexShrink: 1,
   },
-  emptyStateTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 6,
+  entryRight: {
+    alignItems: 'flex-end',
+    gap: 2,
+    maxWidth: 130,
   },
-  emptyStateMessage: {
-    fontSize: 13,
+  entryTotal: {
+    ...t(typography.headlineSm),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  entryNotes: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
+    maxWidth: 120,
+  },
+  entryDelete: {
+    marginTop: spacing.xs,
+    padding: 6,
+    borderRadius: radius.default,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-end',
+  },
+
+  // ─── Empty state ────────────────────────────────────────────────────────
+  emptyCard: {
+    ...elevation.level1,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  emptyTitle: {
+    ...t(typography.headlineSm),
+    color: colors.textPrimary,
+    marginTop: spacing.xs,
+  },
+  emptyMessage: {
+    ...t(typography.bodyMd),
+    color: colors.textTertiary,
     textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 16,
+    marginBottom: spacing.sm,
   },
-  emptyStateButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 8,
+  emptyButton: {
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.default,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  emptyStateButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 13,
+  emptyButtonText: {
+    ...t({ ...typography.bodyMd, fontWeight: '600' }),
+    color: colors.onPrimary,
   },
+
+  // ─── Storage status ─────────────────────────────────────────────────────
+  statusCard: {
+    ...elevation.level1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  statusHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  statusTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexShrink: 1,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.metricPositive,
+  },
+  statusTitle: {
+    ...t(typography.labelMd),
+    color: colors.textSecondary,
+  },
+  statusVersion: {
+    ...t(typography.labelSm),
+    ...tabular,
+    color: colors.textTertiary,
+  },
+  statusBody: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
+    lineHeight: 16,
+  },
+
+  // ─── Loader ─────────────────────────────────────────────────────────────
   loaderContainer: {
     paddingVertical: 40,
     alignItems: 'center',
-    gap: 12,
+    gap: spacing.md,
   },
   loaderText: {
-    fontSize: 14,
+    ...t(typography.bodyMd),
+    color: colors.textTertiary,
   },
 });

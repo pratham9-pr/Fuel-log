@@ -24,13 +24,17 @@ interface MonthlyRow {
 // ─── 1. addFuelEntry ──────────────────────────────────────────────────────────
 
 /**
- * Computes `total_cost = liters × pricePerLiter` and inserts a new row.
+ * Inserts a new row.
+ *
+ * `total_cost` defaults to `liters × pricePerLiter`, but an explicit
+ * `entry.totalCost` wins so amount-first flows can store the spend the user
+ * actually entered (schema is unchanged either way).
  *
  * @param entry - Caller-supplied fill-up data (camelCase, no id/total_cost).
  */
 export async function addFuelEntry(entry: NewFuelEntryInput): Promise<void> {
   const db = await getDB();
-  const total_cost = entry.liters * entry.pricePerLiter;
+  const total_cost = entry.totalCost ?? entry.liters * entry.pricePerLiter;
 
   await db.runAsync(
     `INSERT INTO fuel_entries
@@ -193,4 +197,39 @@ export async function getMonthSpend(
     totalLiters: row?.totalLiters ?? 0,
     count: row?.count ?? 0,
   };
+}
+
+// ─── 7. getLastPrice ──────────────────────────────────────────────────────────
+
+/**
+ * Returns the most recent `price_per_liter`, for pre-filling the price field.
+ *
+ * When `vehicle` is given, the newest row for that exact vehicle wins; if the
+ * vehicle has no history (or no vehicle is given), the newest row overall is
+ * returned so the field never keeps a stale, unrelated vehicle's price.
+ * `null` means the table is empty.
+ *
+ * @param vehicle - Optional free-text vehicle identifier (trimmed inside).
+ */
+export async function getLastPrice(vehicle?: string): Promise<number | null> {
+  const db = await getDB();
+  const trimmed = vehicle?.trim();
+
+  if (trimmed) {
+    const row = await db.getFirstAsync<{ price_per_liter: number }>(
+      `SELECT price_per_liter FROM fuel_entries
+        WHERE vehicle = ?
+        ORDER BY date DESC, id DESC
+        LIMIT 1`,
+      [trimmed]
+    );
+    if (row) return row.price_per_liter;
+  }
+
+  const row = await db.getFirstAsync<{ price_per_liter: number }>(
+    `SELECT price_per_liter FROM fuel_entries
+      ORDER BY date DESC, id DESC
+      LIMIT 1`
+  );
+  return row?.price_per_liter ?? null;
 }

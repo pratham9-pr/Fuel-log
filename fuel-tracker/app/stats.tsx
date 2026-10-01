@@ -1,5 +1,6 @@
 import { format, parseISO } from 'date-fns';
 import { useFocusEffect, Link } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,15 +13,15 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { BarChart } from 'react-native-chart-kit';
 import { deleteEntry, getAllEntries, getYearlyStats } from '~/lib/fuelRepository';
-import { useAppTheme } from '~/lib/theme';
+import { colors, elevation, gradients, radius, spacing, t, tabular, typography } from '~/lib/theme';
 import type { FuelEntry, YearlyStats } from '~/lib/types';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
 export default function StatsScreen() {
-  const { colors, isDark } = useAppTheme();
   const screenWidth = Dimensions.get('window').width;
 
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
@@ -28,6 +29,7 @@ export default function StatsScreen() {
   const [entries, setEntries] = useState<FuelEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [chartMode, setChartMode] = useState<'spend' | 'volume'>('spend');
 
   const loadData = useCallback(async () => {
     try {
@@ -85,24 +87,48 @@ export default function StatsScreen() {
     ]);
   };
 
-  // Format month for costliest month card
+  const entryCount = stats?.entryCount ?? 0;
+
+  // Format month for the peak-expense callout
+  const costliestMonth = stats?.costliestMonth;
   const formattedCostliestMonth = useMemo(() => {
-    if (!stats?.costliestMonth) return null;
+    if (!costliestMonth) return null;
     try {
-      const date = parseISO(`${stats.costliestMonth.month}-01`);
+      const date = parseISO(`${costliestMonth.month}-01`);
       return {
         monthName: format(date, 'MMMM'),
-        amount: stats.costliestMonth.amount,
+        amount: costliestMonth.amount,
       };
     } catch {
       return {
-        monthName: stats.costliestMonth.month,
-        amount: stats.costliestMonth.amount,
+        monthName: costliestMonth.month,
+        amount: costliestMonth.amount,
       };
     }
-  }, [stats?.costliestMonth]);
+  }, [costliestMonth]);
 
-  // Chart data fed from stats.monthlyBreakdown
+  // Peak month details derived from already-loaded data (no extra DB calls)
+  const peakMonthData = useMemo(() => {
+    if (!stats?.costliestMonth) return null;
+    const { month: peakMonth, amount } = stats.costliestMonth;
+    const monthEntries = entries.filter((e) => e.date.startsWith(`${peakMonth}-`));
+    const liters = monthEntries.reduce((sum, e) => sum + e.liters, 0);
+    const pct = stats.totalSpent > 0 ? (amount / stats.totalSpent) * 100 : 0;
+    return { count: monthEntries.length, liters, pct };
+  }, [entries, stats]);
+
+  // Year-wide totals derived from the existing monthly breakdown
+  const totalYearLiters = useMemo(
+    () => (stats?.monthlyBreakdown ?? []).reduce((sum, m) => sum + m.totalLiters, 0),
+    [stats?.monthlyBreakdown]
+  );
+
+  const monthsLogged = stats?.monthlyBreakdown.length ?? 0;
+  const avgLogsPerMonth = monthsLogged > 0 ? entryCount / monthsLogged : 0;
+  const avgLitersPerFill = entryCount > 0 ? totalYearLiters / entryCount : 0;
+  const avgPricePerLiter = totalYearLiters > 0 ? (stats?.totalSpent ?? 0) / totalYearLiters : 0;
+
+  // Chart data fed from stats.monthlyBreakdown (spend or volume)
   const chartData = useMemo(() => {
     if (!stats || stats.monthlyBreakdown.length === 0) {
       return null;
@@ -116,7 +142,11 @@ export default function StatsScreen() {
       }
     });
 
-    const data = stats.monthlyBreakdown.map((item) => Math.round(item.totalSpent));
+    const data = stats.monthlyBreakdown.map((item) =>
+      chartMode === 'spend'
+        ? Math.round(item.totalSpent)
+        : Math.round(item.totalLiters * 10) / 10
+    );
 
     return {
       labels,
@@ -126,295 +156,282 @@ export default function StatsScreen() {
         },
       ],
     };
-  }, [stats]);
+  }, [stats, chartMode]);
 
   // Dynamic width for horizontal scrolling if many months exist
   const barChartWidth = useMemo(() => {
     const count = stats?.monthlyBreakdown.length ?? 0;
-    const baseWidth = screenWidth - 48;
+    const baseWidth = screenWidth - 40 - 32; // screen inset + card padding
     return Math.max(baseWidth, count * 56);
   }, [stats?.monthlyBreakdown.length, screenWidth]);
 
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loaderScreen}>
+        <ActivityIndicator size="large" color={colors.textPrimary} />
+        <Text style={styles.loaderText}>Loading statistics…</Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView
-      style={[styles.screen, { backgroundColor: colors.background }]}
+      style={styles.screen}
       contentContainerStyle={styles.content}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={handleRefresh}
-          tintColor={colors.refreshColor}
-          colors={[colors.refreshColor]}
+          tintColor={colors.textSecondary}
+          colors={[colors.textSecondary]}
         />
       }
     >
-      {/* Year Selector with Left/Right Arrows */}
-      <View
-        style={[
-          styles.yearSelectorCard,
-          { backgroundColor: colors.card, borderColor: colors.cardBorder },
-        ]}
-      >
-        <Pressable
-          style={[styles.yearArrowButton, { backgroundColor: colors.subtleBg }]}
-          onPress={handlePrevYear}
-          hitSlop={12}
-        >
-          <Text style={[styles.yearArrowText, { color: colors.text }]}>◀</Text>
-        </Pressable>
+      {/* Year selector + sync status */}
+      <View style={styles.toolbarRow}>
+        <View style={styles.yearSelector}>
+          <Pressable style={styles.yearArrow} onPress={handlePrevYear} hitSlop={12}>
+            <Ionicons name="chevron-back-outline" size={18} color={colors.textSecondary} />
+          </Pressable>
 
-        <View style={styles.yearDisplay}>
-          <Text style={[styles.yearLabelText, { color: colors.textMuted }]}>
-            Viewing Year
-          </Text>
-          <Text style={[styles.yearNumberText, { color: colors.text }]}>
-            {selectedYear}
-          </Text>
-          {selectedYear === CURRENT_YEAR && (
-            <View
-              style={[
-                styles.currentYearBadge,
-                { backgroundColor: isDark ? '#1E3A8A' : '#DBEAFE' },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.currentYearBadgeText,
-                  { color: isDark ? '#93C5FD' : '#1D4ED8' },
-                ]}
-              >
-                Current
-              </Text>
-            </View>
-          )}
+          <View style={styles.yearCenter}>
+            <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
+            <Text style={styles.yearNumber}>{selectedYear}</Text>
+            {selectedYear === CURRENT_YEAR && (
+              <View style={styles.currentBadge}>
+                <Text style={styles.currentBadgeText}>Current</Text>
+              </View>
+            )}
+          </View>
+
+          <Pressable
+            style={[styles.yearArrow, selectedYear >= CURRENT_YEAR && styles.yearArrowDisabled]}
+            onPress={handleNextYear}
+            disabled={selectedYear >= CURRENT_YEAR}
+            hitSlop={12}
+          >
+            <Ionicons
+              name="chevron-forward-outline"
+              size={18}
+              color={selectedYear >= CURRENT_YEAR ? colors.textTertiary : colors.textSecondary}
+            />
+          </Pressable>
         </View>
 
-        <Pressable
-          style={[
-            styles.yearArrowButton,
-            { backgroundColor: colors.subtleBg },
-            selectedYear >= CURRENT_YEAR && styles.yearArrowDisabled,
-          ]}
-          onPress={handleNextYear}
-          disabled={selectedYear >= CURRENT_YEAR}
-          hitSlop={12}
-        >
-          <Text
-            style={[
-              styles.yearArrowText,
-              { color: selectedYear >= CURRENT_YEAR ? colors.textMuted : colors.text },
-            ]}
-          >
-            ▶
-          </Text>
-        </Pressable>
+        <View style={styles.syncChip}>
+          <View style={styles.syncDot} />
+          <Text style={styles.syncText}>Local SQLite Sync</Text>
+        </View>
       </View>
 
-      {/* 4 Overview Metric Cards */}
-      <View style={styles.metricsGrid}>
-        {/* Total Spent */}
-        <View style={[styles.statCard, { backgroundColor: colors.primary, borderColor: colors.primary }]}>
-          <Text style={styles.statCardIcon}>💰</Text>
-          <Text style={styles.statCardValueWhite}>
-            ₹{(stats?.totalSpent ?? 0).toLocaleString('en-IN', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </Text>
-          <Text style={styles.statCardLabelWhite}>Total Spent ({selectedYear})</Text>
+      {/* KPI grid */}
+      <View style={styles.kpiGrid}>
+        <View style={styles.kpiTile}>
+          <View style={styles.kpiLabelRow}>
+            <Text style={styles.kpiLabel} numberOfLines={1}>
+              Total Spent
+            </Text>
+            <Ionicons name="wallet-outline" size={20} color={colors.textSecondary} />
+          </View>
+          <View style={styles.kpiValueBlock}>
+            <Text style={styles.kpiValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              ₹
+              {(stats?.totalSpent ?? 0).toLocaleString('en-IN', {
+                maximumFractionDigits: 0,
+              })}
+            </Text>
+            <Text style={styles.kpiSub}>{entryCount} entries recorded</Text>
+          </View>
         </View>
 
-        {/* Number of Fill-ups */}
-        <View
-          style={[
-            styles.statCard,
-            { backgroundColor: colors.card, borderColor: colors.cardBorder },
-          ]}
-        >
-          <Text style={styles.statCardIcon}>⛽</Text>
-          <Text style={[styles.statCardValue, { color: colors.text }]}>
-            {stats?.entryCount ?? 0}
-          </Text>
-          <Text style={[styles.statCardLabel, { color: colors.textSecondary }]}>
-            Fill-ups
-          </Text>
+        <View style={styles.kpiTile}>
+          <View style={styles.kpiLabelRow}>
+            <Text style={styles.kpiLabel} numberOfLines={1}>
+              Fill-ups
+            </Text>
+            <Ionicons name="car-outline" size={20} color={colors.textSecondary} />
+          </View>
+          <View style={styles.kpiValueBlock}>
+            <Text style={styles.kpiValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              {entryCount}
+            </Text>
+            <Text style={styles.kpiSub}>~{avgLogsPerMonth.toFixed(1)} logs / month</Text>
+          </View>
         </View>
 
-        {/* Average Cost per Fill-up */}
-        <View
-          style={[
-            styles.statCard,
-            { backgroundColor: colors.card, borderColor: colors.cardBorder },
-          ]}
-        >
-          <Text style={styles.statCardIcon}>🧾</Text>
-          <Text style={[styles.statCardValue, { color: colors.text }]}>
-            ₹{(stats?.avgCostPerFillup ?? 0).toLocaleString('en-IN', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </Text>
-          <Text style={[styles.statCardLabel, { color: colors.textSecondary }]}>
-            Avg / Fill-up
-          </Text>
+        <View style={styles.kpiTile}>
+          <View style={styles.kpiLabelRow}>
+            <Text style={styles.kpiLabel} numberOfLines={1}>
+              Avg / Fill-up
+            </Text>
+            <Ionicons name="receipt-outline" size={20} color={colors.textSecondary} />
+          </View>
+          <View style={styles.kpiValueBlock}>
+            <Text style={styles.kpiValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              ₹
+              {(stats?.avgCostPerFillup ?? 0).toLocaleString('en-IN', {
+                maximumFractionDigits: 0,
+              })}
+            </Text>
+            <Text style={styles.kpiSub}>~{avgLitersPerFill.toFixed(1)} L / tank</Text>
+          </View>
         </View>
 
-        {/* Costliest Month Highlighted Card */}
-        <View
-          style={[
-            styles.statCard,
-            {
-              backgroundColor: colors.highlightBg,
-              borderColor: colors.highlightBorder,
-            },
-          ]}
+        <View style={styles.kpiTile}>
+          <View style={styles.kpiLabelRow}>
+            <Text style={styles.kpiLabel} numberOfLines={1}>
+              Avg Price/L
+            </Text>
+            <Ionicons name="speedometer-outline" size={20} color={colors.textSecondary} />
+          </View>
+          <View style={styles.kpiValueBlock}>
+            <Text style={styles.kpiValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+              ₹{avgPricePerLiter.toFixed(2)}
+            </Text>
+            <Text style={styles.kpiSub}>{totalYearLiters.toFixed(1)} L measured</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Peak expense month callout */}
+      {formattedCostliestMonth && peakMonthData && (
+        <LinearGradient
+          colors={gradients.peakCallout}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.peakCard}
         >
-          <View
-            style={[
-              styles.highlightBadge,
-              {
-                backgroundColor: isDark ? '#451A03' : '#FEF3C7',
-                borderColor: colors.highlightBorder,
-              },
-            ]}
-          >
-            <Text style={[styles.highlightBadgeText, { color: colors.highlightText }]}>
-              Peak Month
+          <View style={styles.peakBar} />
+          <View style={styles.peakContent}>
+            <View style={styles.peakLabelRow}>
+              <Ionicons name="warning-outline" size={16} color={colors.metricPeak} />
+              <Text style={styles.peakLabel}>Peak Expense Month</Text>
+            </View>
+            <Text style={styles.peakTitle}>
+              {formattedCostliestMonth.monthName} — ₹
+              {formattedCostliestMonth.amount.toLocaleString('en-IN', {
+                maximumFractionDigits: 0,
+              })}
+            </Text>
+            <Text style={styles.peakBody}>
+              {peakMonthData.count} {peakMonthData.count === 1 ? 'fill-up' : 'fill-ups'}{' '}
+              recorded · {peakMonthData.liters.toFixed(1)} L pumped
             </Text>
           </View>
-          <Text style={styles.statCardIcon}>🔥</Text>
-          {formattedCostliestMonth ? (
-            <>
-              <Text
-                style={[styles.costliestMonthName, { color: colors.highlightText }]}
-                numberOfLines={1}
-              >
-                {formattedCostliestMonth.monthName}
-              </Text>
-              <Text style={[styles.costliestAmount, { color: colors.highlightText }]}>
-                ₹
-                {formattedCostliestMonth.amount.toLocaleString('en-IN', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </Text>
-            </>
-          ) : (
-            <Text style={[styles.noDataText, { color: colors.textMuted }]}>
-              None yet
-            </Text>
-          )}
-          <Text style={[styles.statCardLabel, { color: colors.textMuted }]}>
-            Costliest Month
-          </Text>
-        </View>
-      </View>
+          <View style={styles.peakBadge}>
+            <Text style={styles.peakBadgeValue}>{peakMonthData.pct.toFixed(1)}%</Text>
+            <Text style={styles.peakBadgeLabel}>of total</Text>
+          </View>
+        </LinearGradient>
+      )}
 
-      {/* Monthly Spend Bar Chart Section */}
-      <View style={styles.chartSection}>
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-            Monthly Spend ({selectedYear})
-          </Text>
-          {stats?.monthlyBreakdown && stats.monthlyBreakdown.length > 0 && (
-            <Text style={[styles.chartSubtext, { color: colors.textMuted }]}>
-              {stats.monthlyBreakdown.length}{' '}
-              {stats.monthlyBreakdown.length === 1 ? 'month' : 'months'}
-            </Text>
-          )}
+      {/* Cadence & Trends chart */}
+      <View style={styles.chartCard}>
+        <View style={styles.chartHeaderRow}>
+          <View style={styles.chartHeaderText}>
+            <Text style={styles.chartTitle}>Cadence &amp; Trends</Text>
+            <Text style={styles.chartSubtitle}>Monthly totals across {selectedYear}</Text>
+          </View>
+          <View style={styles.segmented}>
+            <Pressable
+              style={[styles.segment, chartMode === 'spend' && styles.segmentActive]}
+              onPress={() => setChartMode('spend')}
+            >
+              <Text
+                style={[styles.segmentText, chartMode === 'spend' && styles.segmentTextActive]}
+              >
+                Spend (₹)
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.segment, chartMode === 'volume' && styles.segmentActive]}
+              onPress={() => setChartMode('volume')}
+            >
+              <Text
+                style={[styles.segmentText, chartMode === 'volume' && styles.segmentTextActive]}
+              >
+                Volume (L)
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         {chartData ? (
-          <View
-            style={[
-              styles.chartWrapper,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
-            ]}
-          >
+          <>
+            <View style={styles.inspectorRow}>
+              <View style={styles.inspectorLeft}>
+                <View style={styles.inspectorDot} />
+                <Text style={styles.inspectorLabel}>{selectedYear} overview</Text>
+              </View>
+              <View style={styles.inspectorRight}>
+                <Text style={styles.inspectorMeta}>
+                  Logged: {entryCount} {entryCount === 1 ? 'fill-up' : 'fill-ups'}
+                </Text>
+                <Text style={styles.inspectorValue}>
+                  {chartMode === 'spend'
+                    ? `₹${(stats?.totalSpent ?? 0).toLocaleString('en-IN', {
+                        maximumFractionDigits: 0,
+                      })}`
+                    : `${totalYearLiters.toFixed(1)} L`}
+                </Text>
+              </View>
+            </View>
+
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <BarChart
                 data={chartData}
                 width={barChartWidth}
                 height={220}
-                yAxisLabel="₹"
+                yAxisLabel={chartMode === 'spend' ? '₹' : ''}
                 yAxisSuffix=""
                 fromZero
                 showValuesOnTopOfBars
                 chartConfig={{
-                  backgroundColor: colors.card,
-                  backgroundGradientFrom: colors.card,
-                  backgroundGradientTo: colors.card,
-                  decimalPlaces: 0,
-                  color: (opacity = 1) =>
-                    isDark
-                      ? `rgba(96, 165, 250, ${opacity})`
-                      : `rgba(37, 99, 235, ${opacity})`,
-                  labelColor: (opacity = 1) =>
-                    isDark
-                      ? `rgba(148, 163, 184, ${opacity})`
-                      : `rgba(100, 116, 139, ${opacity})`,
+                  backgroundColor: colors.surfaceCard,
+                  backgroundGradientFrom: colors.surfaceCard,
+                  backgroundGradientTo: colors.surfaceCard,
+                  decimalPlaces: chartMode === 'spend' ? 0 : 1,
+                  color: () => 'rgba(155, 163, 175, 0.9)',
+                  labelColor: () => 'rgba(96, 104, 119, 1)',
                   barPercentage: 0.55,
                   propsForLabels: {
                     fontSize: 10,
-                    fontWeight: '600',
+                    fontWeight: '500',
                   },
                 }}
                 style={styles.chartStyle}
               />
             </ScrollView>
-          </View>
+          </>
         ) : (
-          <View
-            style={[
-              styles.emptyCard,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
-            ]}
-          >
-            <Text style={styles.emptyIcon}>📊</Text>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              No monthly data for {selectedYear}
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+          <View style={styles.chartEmpty}>
+            <Ionicons name="bar-chart-outline" size={24} color={colors.textTertiary} />
+            <Text style={styles.emptyTitle}>No monthly data for {selectedYear}</Text>
+            <Text style={styles.emptySubtitle}>
               Add fuel fill-ups dated in {selectedYear} to view the monthly expense chart.
             </Text>
           </View>
         )}
       </View>
 
-      {/* All Entries Section */}
-      <View style={styles.entriesSection}>
-        <View style={styles.sectionHeaderRow}>
-          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-            All Entries
-          </Text>
-          <Text
-            style={[
-              styles.entryCountBadge,
-              { backgroundColor: colors.subtleBg, color: colors.textSecondary },
-            ]}
-          >
-            {entries.length} {entries.length === 1 ? 'record' : 'records'}
+      {/* All Entries */}
+      <View>
+        <View style={styles.entriesHeader}>
+          <Text style={styles.sectionTitle}>Recorded Fill-Ups</Text>
+          <Text style={styles.entriesSubtitle}>
+            {entries.length} {entries.length === 1 ? 'record' : 'records'} in SQLite storage
           </Text>
         </View>
 
         {entries.length === 0 ? (
-          <View
-            style={[
-              styles.emptyCard,
-              { backgroundColor: colors.card, borderColor: colors.cardBorder },
-            ]}
-          >
-            <Text style={styles.emptyIcon}>📋</Text>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              No entries yet
-            </Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+          <View style={styles.emptyCard}>
+            <Feather name="clipboard" size={24} color={colors.textTertiary} />
+            <Text style={styles.emptyTitle}>No entries yet</Text>
+            <Text style={styles.emptySubtitle}>
               Your fuel log history will appear here once you add your first receipt.
             </Text>
             <Link href="/add-entry" asChild>
-              <Pressable
-                style={[styles.emptyButton, { backgroundColor: colors.primary }]}
-              >
+              <Pressable style={styles.emptyButton}>
                 <Text style={styles.emptyButtonText}>+ Add First Entry</Text>
               </Pressable>
             </Link>
@@ -422,81 +439,77 @@ export default function StatsScreen() {
         ) : (
           <View style={styles.entriesList}>
             {entries.map((entry) => {
-              let displayDate = entry.date;
+              const isPeakEntry =
+                stats?.costliestMonth != null &&
+                entry.date.startsWith(`${stats.costliestMonth.month}-`);
+              const isToday = entry.date === format(new Date(), 'yyyy-MM-dd');
+
+              let dayLabel = entry.date;
+              let monthLabel = '';
+              let yearLabel = '';
               try {
-                displayDate = format(parseISO(entry.date), 'MMM d, yyyy');
+                const parsed = parseISO(entry.date);
+                dayLabel = format(parsed, 'dd');
+                monthLabel = format(parsed, 'MMM');
+                yearLabel = format(parsed, 'yyyy');
               } catch {
-                displayDate = entry.date;
+                dayLabel = entry.date;
               }
 
               return (
-                <View
-                  key={entry.id}
-                  style={[
-                    styles.entryItemCard,
-                    { backgroundColor: colors.card, borderColor: colors.cardBorder },
-                  ]}
-                >
-                  {/* Left: Date & Vehicle */}
-                  <View style={styles.entryLeft}>
-                    <Text style={[styles.entryDate, { color: colors.text }]}>
-                      {displayDate}
-                    </Text>
-                    {entry.vehicle ? (
-                      <View
-                        style={[
-                          styles.vehicleTag,
-                          { backgroundColor: colors.subtleBg },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.vehicleTagText,
-                            { color: colors.textSecondary },
-                          ]}
+                <View key={entry.id} style={styles.entryRow}>
+                  {/* Date tile */}
+                  <View style={styles.dateTile}>
+                    <Text style={styles.dateTileMonth}>{monthLabel}</Text>
+                    <Text style={styles.dateTileDay}>{dayLabel}</Text>
+                  </View>
+
+                  {/* Volume + vehicle, rate + notes */}
+                  <View style={styles.entryMiddle}>
+                    <View style={styles.entryTitleRow}>
+                      <Text style={styles.entryLiters}>{entry.liters.toFixed(2)} L</Text>
+                      {entry.vehicle ? (
+                        <View
+                          style={[styles.vehicleChip, isPeakEntry && styles.vehicleChipPeak]}
                         >
-                          🚗 {entry.vehicle}
-                        </Text>
+                          <Text
+                            style={[
+                              styles.vehicleChipText,
+                              isPeakEntry && styles.vehicleChipTextPeak,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {entry.vehicle}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.entryMetaText} numberOfLines={1}>
+                      {yearLabel} · ₹{entry.price_per_liter.toFixed(2)} / L
+                      {entry.notes ? ` · ${entry.notes}` : ''}
+                    </Text>
+                  </View>
+
+                  {/* Cost, tag, delete */}
+                  <View style={styles.entryRight}>
+                    <Text style={styles.entryCost}>₹{entry.total_cost.toFixed(2)}</Text>
+                    {isPeakEntry ? (
+                      <View style={styles.peakTag}>
+                        <Text style={styles.peakTagText}>Peak Record</Text>
+                      </View>
+                    ) : isToday ? (
+                      <View style={styles.todayTag}>
+                        <Text style={styles.todayTagText}>Today</Text>
                       </View>
                     ) : null}
-                    {entry.notes ? (
-                      <Text
-                        style={[styles.entryNotes, { color: colors.textMuted }]}
-                        numberOfLines={1}
-                      >
-                        💬 {entry.notes}
-                      </Text>
-                    ) : null}
+                    <Pressable
+                      style={styles.entryTrash}
+                      onPress={() => handleDelete(entry.id)}
+                      hitSlop={10}
+                    >
+                      <Ionicons name="trash-outline" size={20} color={colors.metricDanger} />
+                    </Pressable>
                   </View>
-
-                  {/* Middle: Liters & Total Cost */}
-                  <View style={styles.entryRightMetrics}>
-                    <View style={styles.metricRow}>
-                      <Text style={[styles.metricLitersLabel, { color: colors.textMuted }]}>
-                        Volume:
-                      </Text>
-                      <Text style={[styles.metricLiters, { color: colors.text }]}>
-                        {entry.liters.toFixed(2)} L
-                      </Text>
-                    </View>
-                    <View style={styles.metricRow}>
-                      <Text style={[styles.metricCostLabel, { color: colors.textMuted }]}>
-                        Total:
-                      </Text>
-                      <Text style={[styles.metricCost, { color: colors.primary }]}>
-                        ₹{entry.total_cost.toFixed(2)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Right: Trash Delete Button */}
-                  <Pressable
-                    style={[styles.deleteIconButton, { backgroundColor: colors.dangerBg }]}
-                    onPress={() => handleDelete(entry.id)}
-                    hitSlop={10}
-                  >
-                    <Text style={styles.deleteIconText}>🗑️</Text>
-                  </Pressable>
                 </View>
               );
             })}
@@ -510,274 +523,435 @@ export default function StatsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    backgroundColor: colors.surfaceCanvas,
   },
   content: {
-    padding: 16,
+    paddingHorizontal: spacing.margin,
+    paddingTop: spacing.md,
     paddingBottom: 48,
-    gap: 18,
+    gap: spacing.lg,
   },
-  /* Year Selector Card */
-  yearSelectorCard: {
+
+  // ─── Toolbar ────────────────────────────────────────────────────────────
+  toolbarRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderWidth: 1,
-    elevation: 2,
+    gap: spacing.sm,
+    flexWrap: 'wrap',
   },
-  yearArrowButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  yearSelector: {
+    ...elevation.level1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: radius.md,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+  },
+  yearArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.default,
+    backgroundColor: colors.surfaceInteractive,
     justifyContent: 'center',
     alignItems: 'center',
   },
   yearArrowDisabled: {
-    opacity: 0.35,
+    opacity: 0.4,
   },
-  yearArrowText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  yearDisplay: {
-    alignItems: 'center',
-    gap: 2,
-  },
-  yearLabelText: {
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  yearNumberText: {
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  currentYearBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginTop: 2,
-  },
-  currentYearBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  /* 4 Overview Metric Cards */
-  metricsGrid: {
+  yearCenter: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  statCard: {
-    borderRadius: 14,
-    padding: 14,
-    width: '48%',
-    borderWidth: 1,
-    elevation: 2,
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 6,
   },
-  highlightBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
+  yearNumber: {
+    ...t(typography.headlineSm),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  currentBadge: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceInteractive,
   },
-  highlightBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
+  currentBadgeText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
   },
-  statCardIcon: {
-    fontSize: 22,
-    marginBottom: 4,
+  syncChip: {
+    ...elevation.level1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: radius.default,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
   },
-  statCardValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.metricPositive,
   },
-  statCardValueWhite: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    textAlign: 'center',
+  syncText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
   },
-  statCardLabel: {
-    fontSize: 11,
-    marginTop: 4,
-    fontWeight: '600',
-    textAlign: 'center',
+
+  // ─── KPI grid ───────────────────────────────────────────────────────────
+  kpiGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.gutter,
   },
-  statCardLabelWhite: {
-    fontSize: 11,
-    color: '#BFDBFE',
-    marginTop: 4,
-    fontWeight: '600',
-    textAlign: 'center',
+  kpiTile: {
+    ...elevation.level1,
+    width: '47%',
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
-  costliestMonthName: {
-    fontSize: 13,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  costliestAmount: {
-    fontSize: 16,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  noDataText: {
-    fontSize: 13,
-    fontStyle: 'italic',
-  },
-  /* Section Header */
-  sectionHeaderRow: {
+  kpiLabelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    gap: spacing.xs,
   },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+  kpiLabel: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
+    flexShrink: 1,
   },
-  chartSubtext: {
-    fontSize: 12,
-    fontWeight: '600',
+  kpiValueBlock: {
+    gap: spacing.xs,
   },
-  /* Chart Section */
-  chartSection: {
-    marginTop: 2,
+  kpiValue: {
+    ...t(typography.metricXl),
+    ...tabular,
+    color: colors.textPrimary,
   },
-  chartWrapper: {
-    borderRadius: 16,
+  kpiSub: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
+  },
+
+  // ─── Peak expense callout ───────────────────────────────────────────────
+  peakCard: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+    borderRadius: radius.lg,
     borderWidth: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    elevation: 2,
+    borderColor: colors.borderSubtle,
+    padding: spacing.md,
+    overflow: 'hidden',
+  },
+  peakBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 6,
+    backgroundColor: colors.metricPeak,
+  },
+  peakContent: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  peakLabelRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+  },
+  peakLabel: {
+    ...t(typography.labelSm),
+    color: colors.metricPeak,
+  },
+  peakTitle: {
+    ...t(typography.headlineSm),
+    color: colors.textPrimary,
+  },
+  peakBody: {
+    ...t(typography.bodyMd),
+    color: colors.textSecondary,
+  },
+  peakBadge: {
+    backgroundColor: colors.metricPeakTint,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    alignItems: 'flex-end',
+  },
+  peakBadgeValue: {
+    ...t(typography.labelMd),
+    ...tabular,
+    color: colors.metricPeak,
+  },
+  peakBadgeLabel: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
+  },
+
+  // ─── Chart card ─────────────────────────────────────────────────────────
+  chartCard: {
+    ...elevation.level1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  chartHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  chartHeaderText: {
+    flexShrink: 1,
+    gap: 2,
+  },
+  chartTitle: {
+    ...t(typography.titleMd),
+    color: colors.textPrimary,
+  },
+  chartSubtitle: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
+  },
+  segmented: {
+    flexDirection: 'row',
+    backgroundColor: colors.surfaceBase,
+    borderRadius: radius.default,
+    padding: 4,
+    gap: 4,
+  },
+  segment: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.default,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentActive: {
+    backgroundColor: colors.surfaceInteractive,
+  },
+  segmentText: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
+  },
+  segmentTextActive: {
+    color: colors.textPrimary,
+  },
+  inspectorRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceBase,
+    borderRadius: radius.default,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  inspectorLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
+  },
+  inspectorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.textSecondary,
+  },
+  inspectorLabel: {
+    ...t(typography.labelMd),
+    color: colors.textPrimary,
+  },
+  inspectorRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  inspectorMeta: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
+  },
+  inspectorValue: {
+    ...t(typography.titleMd),
+    ...tabular,
+    color: colors.textPrimary,
   },
   chartStyle: {
-    borderRadius: 12,
+    borderRadius: radius.default,
   },
-  /* Entries Section */
-  entriesSection: {
-    marginTop: 2,
+  chartEmpty: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.lg,
   },
-  entryCountBadge: {
-    fontSize: 12,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
+
+  // ─── Entries ────────────────────────────────────────────────────────────
+  entriesHeader: {
+    gap: 2,
+    marginBottom: spacing.sm,
+  },
+  sectionTitle: {
+    ...t(typography.headlineSm),
+    color: colors.textPrimary,
+  },
+  entriesSubtitle: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
   },
   entriesList: {
-    gap: 10,
+    gap: spacing.gutter,
   },
-  entryItemCard: {
-    borderRadius: 14,
-    padding: 14,
+  entryRow: {
+    ...elevation.level1,
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    elevation: 1,
+    gap: spacing.sm,
+    borderRadius: radius.lg,
+    padding: spacing.md,
   },
-  entryLeft: {
-    flex: 1.3,
-    gap: 4,
+  dateTile: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.default,
+    backgroundColor: colors.surfaceBase,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  entryDate: {
-    fontSize: 14,
-    fontWeight: '700',
+  dateTileMonth: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
   },
-  vehicleTag: {
-    alignSelf: 'flex-start',
+  dateTileDay: {
+    ...t(typography.titleMd),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  entryMiddle: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.xs,
+  },
+  entryTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  entryLiters: {
+    ...t(typography.metricMd),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  vehicleChip: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceBase,
+    maxWidth: 120,
   },
-  vehicleTagText: {
-    fontSize: 11,
-    fontWeight: '500',
+  vehicleChipPeak: {
+    backgroundColor: colors.metricPeakTint,
   },
-  entryNotes: {
-    fontSize: 12,
-    fontStyle: 'italic',
+  vehicleChipText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
   },
-  entryRightMetrics: {
-    flex: 1,
+  vehicleChipTextPeak: {
+    color: colors.metricPeak,
+  },
+  entryMetaText: {
+    ...t(typography.labelMd),
+    ...tabular,
+    color: colors.textTertiary,
+  },
+  entryRight: {
     alignItems: 'flex-end',
     gap: 2,
-    paddingRight: 8,
   },
-  metricRow: {
-    flexDirection: 'row',
+  entryCost: {
+    ...t(typography.titleMd),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  peakTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.metricPeakTint,
+    marginTop: 2,
+  },
+  peakTagText: {
+    ...t(typography.labelSm),
+    color: colors.metricPeak,
+  },
+  todayTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceInteractive,
+    marginTop: 2,
+  },
+  todayTagText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
+  },
+  entryTrash: {
+    marginTop: spacing.xs,
+    padding: 6,
+    borderRadius: radius.default,
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
   },
-  metricLitersLabel: {
-    fontSize: 11,
-  },
-  metricLiters: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  metricCostLabel: {
-    fontSize: 11,
-  },
-  metricCost: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  deleteIconButton: {
-    padding: 8,
-    borderRadius: 8,
+
+  // ─── Empty states / loader ──────────────────────────────────────────────
+  loaderScreen: {
+    flex: 1,
+    backgroundColor: colors.surfaceCanvas,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 4,
+    gap: spacing.md,
   },
-  deleteIconText: {
-    fontSize: 16,
+  loaderText: {
+    ...t(typography.bodyMd),
+    color: colors.textTertiary,
   },
-  /* Empty States */
   emptyCard: {
-    borderRadius: 16,
-    padding: 24,
+    ...elevation.level1,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
     alignItems: 'center',
-    borderWidth: 1,
-  },
-  emptyIcon: {
-    fontSize: 34,
-    marginBottom: 8,
+    gap: spacing.sm,
   },
   emptyTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 4,
+    ...t({ ...typography.titleMd, fontWeight: '600' }),
+    color: colors.textPrimary,
   },
   emptySubtitle: {
-    fontSize: 13,
+    ...t(typography.bodyMd),
+    color: colors.textTertiary,
     textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 12,
+    marginBottom: spacing.sm,
   },
   emptyButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginTop: 4,
+    minHeight: 48,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.default,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontSize: 13,
+    ...t({ ...typography.bodyMd, fontWeight: '600' }),
+    color: colors.onPrimary,
   },
 });

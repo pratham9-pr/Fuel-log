@@ -1,6 +1,6 @@
 import { format, isAfter, parseISO, startOfDay, subDays } from 'date-fns';
 import { router } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,34 +13,36 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { addFuelEntry } from '~/lib/fuelRepository';
-import { useAppTheme } from '~/lib/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { addFuelEntry, getLastPrice } from '~/lib/fuelRepository';
+import { colors, elevation, radius, spacing, t, tabular, typography } from '~/lib/theme';
+
+/** Sanity ceiling for price/liter (₹) — catches fat-finger typos like 1101. */
+const MAX_PRICE_PER_LITER = 500;
 
 export default function AddEntryScreen() {
-  const { colors, isDark } = useAppTheme();
-
   const todayDate = new Date();
   const todayISO = format(todayDate, 'yyyy-MM-dd');
   const yesterdayISO = format(subDays(todayDate, 1), 'yyyy-MM-dd');
 
   const [date, setDate] = useState(todayISO);
-  const [liters, setLiters] = useState('');
+  const [amountSpent, setAmountSpent] = useState('');
   const [pricePerLiter, setPricePerLiter] = useState('');
   const [vehicle, setVehicle] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Normalize string for decimal parsing (replace commas with dot)
-  const parsedLiters = parseFloat(liters.replace(',', '.'));
+  const parsedAmount = parseFloat(amountSpent.replace(',', '.'));
   const parsedPrice = parseFloat(pricePerLiter.replace(',', '.'));
 
-  // Live auto-calculated total cost
-  const calculatedTotal = useMemo(() => {
-    if (!isNaN(parsedLiters) && parsedLiters > 0 && !isNaN(parsedPrice) && parsedPrice > 0) {
-      return (parsedLiters * parsedPrice).toFixed(2);
+  // Live auto-calculated volume: liters = amount spent ÷ price per liter
+  const computedLiters = useMemo(() => {
+    if (!isNaN(parsedAmount) && parsedAmount > 0 && !isNaN(parsedPrice) && parsedPrice > 0) {
+      return (parsedAmount / parsedPrice).toFixed(2);
     }
     return null;
-  }, [parsedLiters, parsedPrice]);
+  }, [parsedAmount, parsedPrice]);
 
   // Date validation: format & future check
   const dateError = useMemo(() => {
@@ -66,21 +68,71 @@ export default function AddEntryScreen() {
   }, [date, todayDate]);
 
   // Field-level error messages
-  const litersError = useMemo(() => {
-    if (!liters) return null;
-    if (isNaN(parsedLiters) || parsedLiters <= 0) {
-      return 'Liters must be a positive number greater than 0.';
+  const amountError = useMemo(() => {
+    if (!amountSpent) return null;
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return 'Amount spent must be a positive number greater than 0.';
     }
     return null;
-  }, [liters, parsedLiters]);
+  }, [amountSpent, parsedAmount]);
 
   const priceError = useMemo(() => {
     if (!pricePerLiter) return null;
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
       return 'Price per liter must be a positive number greater than 0.';
     }
+    if (parsedPrice > MAX_PRICE_PER_LITER) {
+      return `Price per liter must be ₹${MAX_PRICE_PER_LITER} or less — check for typos.`;
+    }
     return null;
   }, [pricePerLiter, parsedPrice]);
+
+  // ── Price pre-fill: last price used for this vehicle (or most recent overall)
+  // priceTouchedRef remembers manual edits so an auto-fill never overwrites a
+  // price the user deliberately changed; prefillSeqRef drops stale async
+  // responses when the vehicle text changes faster than queries resolve.
+  const priceTouchedRef = useRef(false);
+  const prefillSeqRef = useRef(0);
+
+  const refreshPrefillPrice = useCallback(async (vehicleText: string) => {
+    const seq = ++prefillSeqRef.current;
+    try {
+      const price = await getLastPrice(vehicleText);
+      if (seq !== prefillSeqRef.current || priceTouchedRef.current) return;
+      if (price !== null) setPricePerLiter(price.toFixed(2));
+    } catch (err) {
+      console.warn('Failed to pre-fill price per liter:', err);
+    }
+  }, []);
+
+  // Prefill from the most recent fill-up overall when the screen opens.
+  // The .then callback keeps setState out of the effect's synchronous body
+  // (this is an async DB fetch, not a derived-state sync update); `active`
+  // cancels the update if the screen unmounts before the query resolves.
+  useEffect(() => {
+    let active = true;
+    getLastPrice('')
+      .then((price) => {
+        if (!active || priceTouchedRef.current || price === null) return;
+        setPricePerLiter(price.toFixed(2));
+      })
+      .catch((err) => {
+        console.warn('Failed to pre-fill price per liter:', err);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handlePriceChange = (text: string) => {
+    priceTouchedRef.current = true;
+    setPricePerLiter(text);
+  };
+
+  const handleVehicleChange = (text: string) => {
+    setVehicle(text);
+    if (!priceTouchedRef.current) void refreshPrefillPrice(text);
+  };
 
   const handleSave = async () => {
     // 1. Date validation
@@ -89,24 +141,36 @@ export default function AddEntryScreen() {
       return;
     }
 
-    // 2. Liters validation
-    if (!liters || isNaN(parsedLiters) || parsedLiters <= 0) {
-      Alert.alert('Invalid Volume', 'Please enter a positive amount of liters (greater than 0).');
+    // 2. Amount spent validation
+    if (!amountSpent || isNaN(parsedAmount) || parsedAmount <= 0) {
+      Alert.alert('Invalid Amount', 'Please enter a positive amount spent (greater than 0).');
       return;
     }
 
-    // 3. Price validation
+    // 3. Price validation (positive, plus a typo-sanity ceiling)
     if (!pricePerLiter || isNaN(parsedPrice) || parsedPrice <= 0) {
       Alert.alert('Invalid Price', 'Please enter a positive price per liter (greater than 0).');
+      return;
+    }
+    if (parsedPrice > MAX_PRICE_PER_LITER) {
+      Alert.alert(
+        'Invalid Price',
+        `Price per liter cannot exceed ₹${MAX_PRICE_PER_LITER}.00 — you entered ₹${parsedPrice.toFixed(2)}. Please check for typos.`
+      );
       return;
     }
 
     setSaving(true);
     try {
+      // The amount spent is the authoritative spend; volume is derived from
+      // it and rounded to the same 2dp shown in the computed readout.
+      const liters = Math.round((parsedAmount / parsedPrice) * 100) / 100;
+
       await addFuelEntry({
         date: date.trim(),
-        liters: parsedLiters,
+        liters,
         pricePerLiter: parsedPrice,
+        totalCost: parsedAmount,
         vehicle: vehicle.trim() || undefined,
         notes: notes.trim() || undefined,
       });
@@ -122,7 +186,7 @@ export default function AddEntryScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={[styles.keyboardAvoid, { backgroundColor: colors.background }]}
+      style={styles.keyboardAvoid}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
@@ -130,32 +194,48 @@ export default function AddEntryScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Computed liters (live readout) */}
+        <View style={styles.totalCard}>
+          <View style={styles.totalLabelRow}>
+            <Ionicons
+              name="water-outline"
+              size={16}
+              color={computedLiters !== null ? colors.metricPositive : colors.textTertiary}
+            />
+            <Text style={styles.totalLabelText}>Computed Liters</Text>
+          </View>
+
+          <View style={styles.totalValueRow}>
+            <Text style={styles.totalValue}>{computedLiters ?? '0.00'}</Text>
+            <Text style={styles.totalUnit}>L</Text>
+          </View>
+
+          {computedLiters !== null ? (
+            <View style={styles.formulaPill}>
+              <Text style={styles.formulaAmount}>₹{parsedAmount.toFixed(2)}</Text>
+              <Text style={styles.formulaOperator}>÷</Text>
+              <Text style={styles.formulaPrice}>₹{parsedPrice.toFixed(2)} / L</Text>
+            </View>
+          ) : (
+            <Text style={styles.totalHint}>
+              Enter amount spent and price per liter to calculate
+            </Text>
+          )}
+        </View>
+
         {/* Date Field */}
         <View style={styles.fieldContainer}>
           <View style={styles.labelRow}>
-            <Text style={[styles.fieldLabel, { color: colors.text }]}>
-              Date <Text style={styles.requiredStar}>*</Text>
-            </Text>
+            <Text style={styles.fieldLabel}>Date</Text>
             <View style={styles.quickDateRow}>
               <Pressable
-                style={[
-                  styles.quickDateChip,
-                  {
-                    backgroundColor:
-                      date === todayISO ? colors.chipActiveBg : colors.chipBg,
-                  },
-                ]}
+                style={[styles.quickChip, date === todayISO ? styles.quickChipActive : styles.quickChipIdle]}
                 onPress={() => setDate(todayISO)}
               >
                 <Text
                   style={[
-                    styles.quickDateChipText,
-                    {
-                      color:
-                        date === todayISO
-                          ? colors.chipActiveText
-                          : colors.chipText,
-                    },
+                    styles.quickChipText,
+                    date === todayISO ? styles.quickChipTextActive : styles.quickChipTextIdle,
                   ]}
                 >
                   Today
@@ -163,23 +243,15 @@ export default function AddEntryScreen() {
               </Pressable>
               <Pressable
                 style={[
-                  styles.quickDateChip,
-                  {
-                    backgroundColor:
-                      date === yesterdayISO ? colors.chipActiveBg : colors.chipBg,
-                  },
+                  styles.quickChip,
+                  date === yesterdayISO ? styles.quickChipActive : styles.quickChipIdle,
                 ]}
                 onPress={() => setDate(yesterdayISO)}
               >
                 <Text
                   style={[
-                    styles.quickDateChipText,
-                    {
-                      color:
-                        date === yesterdayISO
-                          ? colors.chipActiveText
-                          : colors.chipText,
-                    },
+                    styles.quickChipText,
+                    date === yesterdayISO ? styles.quickChipTextActive : styles.quickChipTextIdle,
                   ]}
                 >
                   Yesterday
@@ -188,379 +260,353 @@ export default function AddEntryScreen() {
             </View>
           </View>
 
-          <TextInput
-            style={[
-              styles.textInput,
-              {
-                backgroundColor: colors.inputBg,
-                borderColor: colors.inputBorder,
-                color: colors.inputText,
-              },
-              dateError && {
-                borderColor: colors.dangerText,
-                backgroundColor: colors.dangerBg,
-              },
-            ]}
-            value={date}
-            onChangeText={setDate}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={colors.placeholderText}
-            keyboardType="numbers-and-punctuation"
-            maxLength={10}
-          />
-          {dateError ? (
-            <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {dateError}
-            </Text>
-          ) : null}
+          <View style={styles.inputWrap}>
+            <TextInput
+              style={[styles.textInput, styles.textInputDate, dateError && styles.textInputError]}
+              value={date}
+              onChangeText={setDate}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={colors.textTertiary}
+              keyboardType="numbers-and-punctuation"
+              maxLength={10}
+            />
+            <Ionicons
+              name="calendar-outline"
+              size={20}
+              color={colors.textTertiary}
+              style={styles.inputIcon}
+              pointerEvents="none"
+            />
+          </View>
+          {dateError ? <Text style={styles.errorText}>{dateError}</Text> : null}
         </View>
 
-        {/* Liters Field */}
-        <View style={styles.fieldContainer}>
-          <Text style={[styles.fieldLabel, { color: colors.text }]}>
-            Liters Filled <Text style={styles.requiredStar}>*</Text>
-          </Text>
-          <View style={styles.inputWithSuffix}>
+        {/* Amount Spent & Price per Liter */}
+        <View style={styles.twoColRow}>
+          <View style={styles.colField}>
+            <Text style={styles.fieldLabel}>Amount Spent (₹)</Text>
             <TextInput
-              style={[
-                styles.textInput,
-                styles.inputFlex,
-                {
-                  backgroundColor: colors.inputBg,
-                  borderColor: colors.inputBorder,
-                  color: colors.inputText,
-                },
-                litersError && {
-                  borderColor: colors.dangerText,
-                  backgroundColor: colors.dangerBg,
-                },
-              ]}
-              value={liters}
-              onChangeText={setLiters}
-              placeholder="e.g. 35.50"
-              placeholderTextColor={colors.placeholderText}
+              style={[styles.textInputCenter, amountError && styles.textInputError]}
+              value={amountSpent}
+              onChangeText={setAmountSpent}
+              placeholder="e.g. 2000"
+              placeholderTextColor={colors.textTertiary}
               keyboardType="decimal-pad"
             />
-            <View style={[styles.suffixBadge, { backgroundColor: colors.subtleBg }]}>
-              <Text style={[styles.suffixText, { color: colors.textSecondary }]}>L</Text>
-            </View>
+            {amountError ? <Text style={styles.errorText}>{amountError}</Text> : null}
           </View>
-          {litersError ? (
-            <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {litersError}
-            </Text>
-          ) : null}
-        </View>
 
-        {/* Price Per Liter Field */}
-        <View style={styles.fieldContainer}>
-          <Text style={[styles.fieldLabel, { color: colors.text }]}>
-            Price per Liter <Text style={styles.requiredStar}>*</Text>
-          </Text>
-          <View style={styles.inputWithPrefix}>
-            <View style={styles.prefixBadge}>
-              <Text style={[styles.prefixText, { color: colors.textSecondary }]}>₹</Text>
-            </View>
+          <View style={styles.colField}>
+            <Text style={styles.fieldLabel}>Price / Liter (₹)</Text>
             <TextInput
-              style={[
-                styles.textInput,
-                styles.inputFlex,
-                {
-                  backgroundColor: colors.inputBg,
-                  borderColor: colors.inputBorder,
-                  color: colors.inputText,
-                },
-                priceError && {
-                  borderColor: colors.dangerText,
-                  backgroundColor: colors.dangerBg,
-                },
-              ]}
+              style={[styles.textInputCenter, priceError && styles.textInputError]}
               value={pricePerLiter}
-              onChangeText={setPricePerLiter}
+              onChangeText={handlePriceChange}
               placeholder="e.g. 102.50"
-              placeholderTextColor={colors.placeholderText}
+              placeholderTextColor={colors.textTertiary}
               keyboardType="decimal-pad"
             />
+            {priceError ? <Text style={styles.errorText}>{priceError}</Text> : null}
           </View>
-          {priceError ? (
-            <Text style={[styles.errorText, { color: colors.dangerText }]}>
-              {priceError}
-            </Text>
-          ) : null}
-        </View>
-
-        {/* Live Auto-Calculated Read-Only Total Cost */}
-        <View
-          style={[
-            styles.totalCostCard,
-            {
-              backgroundColor: colors.primaryLight,
-              borderColor: colors.primaryBorder,
-            },
-          ]}
-        >
-          <View style={styles.totalCostHeader}>
-            <Text
-              style={[
-                styles.totalCostTitle,
-                { color: isDark ? '#93C5FD' : '#1E40AF' },
-              ]}
-            >
-              Total Cost
-            </Text>
-            <View
-              style={[
-                styles.readOnlyBadge,
-                { backgroundColor: isDark ? '#1E3A8A' : '#DBEAFE' },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.readOnlyBadgeText,
-                  { color: isDark ? '#93C5FD' : '#1D4ED8' },
-                ]}
-              >
-                Auto-calculated
-              </Text>
-            </View>
-          </View>
-
-          <Text
-            style={[
-              styles.totalCostValue,
-              { color: isDark ? '#60A5FA' : '#1D4ED8' },
-            ]}
-          >
-            {calculatedTotal !== null ? `₹${calculatedTotal}` : '₹0.00'}
-          </Text>
-
-          <Text
-            style={[
-              styles.totalCostFormula,
-              { color: isDark ? '#93C5FD' : '#3B82F6' },
-            ]}
-          >
-            {calculatedTotal !== null
-              ? `${parsedLiters.toFixed(2)} L × ₹${parsedPrice.toFixed(2)} / L`
-              : 'Enter liters and price per liter to calculate'}
-          </Text>
         </View>
 
         {/* Optional Vehicle Input */}
         <View style={styles.fieldContainer}>
-          <Text style={[styles.fieldLabel, { color: colors.text }]}>
-            Vehicle (Optional)
-          </Text>
+          <View style={styles.labelRow}>
+            <Text style={styles.fieldLabel}>Vehicle</Text>
+            <Text style={styles.optionalLabel}>Optional</Text>
+          </View>
           <TextInput
-            style={[
-              styles.textInput,
-              {
-                backgroundColor: colors.inputBg,
-                borderColor: colors.inputBorder,
-                color: colors.inputText,
-              },
-            ]}
+            style={styles.textInput}
             value={vehicle}
-            onChangeText={setVehicle}
+            onChangeText={handleVehicleChange}
             placeholder="e.g. Honda City, Hunter 350"
-            placeholderTextColor={colors.placeholderText}
+            placeholderTextColor={colors.textTertiary}
             maxLength={40}
           />
         </View>
 
         {/* Optional Notes Input */}
         <View style={styles.fieldContainer}>
-          <Text style={[styles.fieldLabel, { color: colors.text }]}>
-            Notes (Optional)
-          </Text>
+          <View style={styles.labelRow}>
+            <Text style={styles.fieldLabel}>Notes</Text>
+            <Text style={styles.optionalLabel}>Optional</Text>
+          </View>
           <TextInput
-            style={[
-              styles.textInput,
-              styles.textAreaInput,
-              {
-                backgroundColor: colors.inputBg,
-                borderColor: colors.inputBorder,
-                color: colors.inputText,
-              },
-            ]}
+            style={styles.textAreaInput}
             value={notes}
             onChangeText={setNotes}
-            placeholder="e.g. Full tank at Shell station, highway trip"
-            placeholderTextColor={colors.placeholderText}
+            placeholder="Station name, highway stop, or odometer…"
+            placeholderTextColor={colors.textTertiary}
             multiline
             numberOfLines={3}
             textAlignVertical="top"
           />
         </View>
 
-        {/* Save Submit Button */}
-        <Pressable
-          style={[
-            styles.saveButton,
-            { backgroundColor: colors.primary },
-            saving && styles.saveButtonDisabled,
-          ]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          {saving ? (
-            <View style={styles.buttonLoadingRow}>
-              <ActivityIndicator color="#FFFFFF" size="small" />
-              <Text style={styles.saveButtonText}>Saving Entry…</Text>
-            </View>
-          ) : (
-            <Text style={styles.saveButtonText}>Save Entry</Text>
-          )}
-        </Pressable>
+        {/* Actions */}
+        <View style={styles.actionsBlock}>
+          <Pressable
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving ? (
+              <View style={styles.buttonLoadingRow}>
+                <ActivityIndicator color={colors.onPrimary} size="small" />
+                <Text style={styles.saveButtonText}>Saving Entry…</Text>
+              </View>
+            ) : (
+              <>
+                <Ionicons name="car-outline" size={20} color={colors.onPrimary} />
+                <Text style={styles.saveButtonText}>Save Fill-Up</Text>
+              </>
+            )}
+          </Pressable>
+
+          <Pressable style={styles.cancelButton} onPress={() => router.back()} disabled={saving}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </Pressable>
+
+          <View style={styles.footerRow}>
+            <View style={styles.footerDot} />
+            <Text style={styles.footerText}>Saved locally on device (SQLite)</Text>
+          </View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
+// Shared input surface: obsidian card + hairline border + Inter regular
+const inputSurface = {
+  borderRadius: radius.default,
+  borderWidth: 1,
+  borderColor: colors.borderSubtle,
+  backgroundColor: colors.surfaceCard,
+  paddingHorizontal: 14,
+  color: colors.textPrimary,
+  ...t(typography.bodyLg),
+};
+
 const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
+    backgroundColor: colors.surfaceCanvas,
   },
   container: {
     flex: 1,
   },
   content: {
-    padding: 20,
+    paddingHorizontal: spacing.margin,
+    paddingVertical: spacing.md,
     paddingBottom: 44,
-    gap: 18,
+    gap: spacing.lg,
   },
-  fieldContainer: {
+
+  // ─── Computed liters ─────────────────────────────────────────────────────
+  totalCard: {
+    ...elevation.level1,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    alignItems: 'center',
+  },
+  totalLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
+  },
+  totalLabelText: {
+    ...t(typography.labelSm),
+    color: colors.textSecondary,
+  },
+  totalValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    marginTop: spacing.sm,
+  },
+  totalUnit: {
+    ...t(typography.headlineMd),
+    color: colors.textSecondary,
+  },
+  totalValue: {
+    ...t(typography.displayLg),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  formulaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: spacing.sm,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  formulaAmount: {
+    ...t(typography.labelMd),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  formulaOperator: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
+  },
+  formulaPrice: {
+    ...t(typography.labelMd),
+    ...tabular,
+    color: colors.textPrimary,
+  },
+  totalHint: {
+    ...t(typography.bodyMd),
+    color: colors.textTertiary,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+
+  // ─── Fields ─────────────────────────────────────────────────────────────
+  fieldContainer: {
+    gap: spacing.sm,
   },
   labelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    minHeight: 20,
   },
   fieldLabel: {
-    fontSize: 14,
-    fontWeight: '700',
+    ...t(typography.labelMd),
+    color: colors.textSecondary,
   },
-  requiredStar: {
-    color: '#EF4444',
+  optionalLabel: {
+    ...t(typography.labelSm),
+    color: colors.textTertiary,
   },
   quickDateRow: {
     flexDirection: 'row',
     gap: 6,
   },
-  quickDateChip: {
+  quickChip: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: radius.default,
   },
-  quickDateChipText: {
-    fontSize: 12,
-    fontWeight: '600',
+  quickChipIdle: {
+    backgroundColor: colors.surfaceInteractive,
+  },
+  quickChipActive: {
+    backgroundColor: colors.primary,
+  },
+  quickChipText: {
+    ...t(typography.labelMd),
+  },
+  quickChipTextIdle: {
+    color: colors.textSecondary,
+  },
+  quickChipTextActive: {
+    color: colors.onPrimary,
+  },
+  inputWrap: {
+    position: 'relative',
+    justifyContent: 'center',
   },
   textInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
+    ...inputSurface,
+    height: 48,
   },
-  errorText: {
-    fontSize: 12,
-    fontWeight: '500',
-    marginTop: 2,
+  textInputDate: {
+    paddingRight: 40,
   },
-  inputWithSuffix: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  inputWithPrefix: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  inputFlex: {
-    flex: 1,
-  },
-  suffixBadge: {
-    position: 'absolute',
-    right: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  suffixText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  prefixBadge: {
-    position: 'absolute',
-    left: 14,
-    zIndex: 1,
-  },
-  prefixText: {
-    fontSize: 16,
-    fontWeight: '700',
+  textInputCenter: {
+    ...inputSurface,
+    ...t(typography.metricMd),
+    height: 48,
+    textAlign: 'center',
+    paddingHorizontal: spacing.sm,
   },
   textAreaInput: {
-    minHeight: 85,
-    paddingTop: 12,
+    ...inputSurface,
+    ...t(typography.bodyMd),
+    minHeight: 96,
+    paddingVertical: 12,
+    textAlignVertical: 'top',
   },
-  totalCostCard: {
-    borderRadius: 14,
-    borderWidth: 1.5,
-    padding: 16,
-    marginVertical: 4,
+  inputIcon: {
+    position: 'absolute',
+    right: 14,
+    top: 14,
   },
-  totalCostHeader: {
+  textInputError: {
+    borderColor: colors.metricDanger,
+    backgroundColor: colors.metricDangerTint,
+  },
+  errorText: {
+    ...t(typography.labelMd),
+    color: colors.metricDanger,
+    marginTop: 2,
+  },
+  twoColRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
+    gap: spacing.gutter,
   },
-  totalCostTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  colField: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.sm,
   },
-  readOnlyBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  readOnlyBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  totalCostValue: {
-    fontSize: 30,
-    fontWeight: '800',
-    marginVertical: 2,
-  },
-  totalCostFormula: {
-    fontSize: 13,
-    fontWeight: '500',
+
+  // ─── Actions ────────────────────────────────────────────────────────────
+  actionsBlock: {
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   saveButton: {
-    borderRadius: 12,
-    paddingVertical: 16,
+    minHeight: 48,
+    borderRadius: radius.default,
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
-    elevation: 3,
+    gap: spacing.sm,
   },
   saveButtonDisabled: {
     opacity: 0.6,
   },
   saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    ...t(typography.headlineSm),
+    color: colors.onPrimary,
   },
   buttonLoadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
+  },
+  cancelButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    ...t({ ...typography.bodyMd, fontWeight: '500' }),
+    color: colors.textSecondary,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: spacing.xs,
+  },
+  footerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.metricPositive,
+  },
+  footerText: {
+    ...t(typography.labelMd),
+    color: colors.textTertiary,
   },
 });
